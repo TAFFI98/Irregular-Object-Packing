@@ -11,7 +11,6 @@ import pybullet as p
 import time
 import pybullet_data
 import os
-import volume
 from env import Env
 
 class HM_heuristic(object):

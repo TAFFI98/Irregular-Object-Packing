@@ -52,8 +52,8 @@ if __name__ == '__main__':
         six_views_one_item = []
         for view in principal_views.values():
             Ht,_ = env.item_hm(id_, view )
-            #env.visualize_object_heightmaps(id_, view, only_top = True )
-            #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
+            env.visualize_object_heightmaps(id_, view, only_top = True )
+            env.visualize_object_heightmaps_3d(id_, view, only_top = True )
             six_views_one_item.append(Ht) 
         six_views_one_item = np.array(six_views_one_item)
         six_views_all_items.append(six_views_one_item)
@@ -77,8 +77,6 @@ if __name__ == '__main__':
     K = 10
     final_conv_select_net_graph = draw_graph(final_conv_select_net(use_cuda=False,K = K), input_size=(batch_size,512,K),graph_name = 'final_conv_select_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
     final_conv_select_net_graph.visual_graph
-
-
 
 
     #-- Choose one Item and compute HeightMaps varying first roll, pitch and then yaw (according to the paper)

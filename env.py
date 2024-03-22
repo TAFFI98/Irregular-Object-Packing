@@ -252,14 +252,58 @@ class Env(object):
         p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
         return Ht,Hb
     
-    def bbox_order(self):
+    def order_by_bbox_volume(self,items_ids):
         #-- Function to determine the order of bounding boxes based on their volumes in descending order.
         volume = []
-        for item in self.loaded_ids:
+        for item in items_ids:
             AABB = np.array(p.getAABB(item))
             volume.append(np.product(AABB[1]-AABB[0]))
         bbox_order = np.argsort(volume)[::-1]
-        return bbox_order
+        return volume, bbox_order
+    
+    def order_by_item_volume(self,items_ids):
+        #-- Function to determine the order of bounding boxes based on their volumes in descending order.
+        volume = []
+        for item in items_ids:
+            volume.append(self.item_volume(item))
+        vol_order = np.argsort(volume)[::-1]
+        return volume, vol_order
+
+    def grid_scan(self, xminmax, yminmax, z_start, z_end, sep):
+        
+        # This function performs a scanning operation in a grid pattern within a specified 3D space
+        xpos = np.arange(xminmax[0]+sep/2,xminmax[1]+sep/2,sep)
+        ypos = np.arange(yminmax[0]+sep/2,yminmax[1]+sep/2,sep)
+        xscan, yscan = np.meshgrid(xpos, ypos)
+        ScanArray = np.array([xscan.reshape(-1), yscan.reshape(-1)])
+        Start = np.insert(ScanArray, 2, z_start,0).T
+        End = np.insert(ScanArray, 2, z_end, 0).T
+        RayScan = np.array(p.rayTestBatch(Start, End))
+        Height = RayScan[:,2].astype('float64')*(z_end-z_start)+z_start
+        HeightMap = Height.reshape(ypos.shape[0],xpos.shape[0]).T
+        return HeightMap
+    
+    def item_volume(self, item):
+        # cm^3 
+        # calculating the volume of an item, taking into account rotations and scans to find the tightest enclosing volume.
+        scan_sep = 0.005
+        old_pos, old_quater = p.getBasePositionAndOrientation(item)
+        volume = np.inf # a big number
+        for row in np.arange(0, 2*np.pi, np.pi/4):
+            for pitch in np.arange(0, 2*np.pi, np.pi/4):
+                quater = p.getQuaternionFromEuler([row, pitch, 0])
+                p.resetBasePositionAndOrientation(item,[1,1,1],quater)
+                AABB = p.getAABB(item)
+                TopDown = self.grid_scan([AABB[0][0], AABB[1][0]], [AABB[0][1],AABB[1][1]],
+                                    AABB[1][2], AABB[0][2], scan_sep)
+                DownTop = self.grid_scan([AABB[0][0], AABB[1][0]], [AABB[0][1],AABB[1][1]],
+                                    AABB[0][2], AABB[1][2], scan_sep)
+                HeightDiff = TopDown-DownTop
+                HeightDiff[HeightDiff<0] = 0 # empty part
+                temp_v = np.sum(HeightDiff)*(scan_sep/0.01)**2
+                volume = min(volume, temp_v)
+        p.resetBasePositionAndOrientation(item,old_pos,old_quater)
+        return volume
     
     def pack_item(self, item_id, transform):
         #-- Function to reset the position and orientation of the item based on the provided transform argument[target_euler,target_pos]. 
@@ -380,6 +424,22 @@ class Env(object):
             print('Total number of objects: ', tot_num_objects )
 
         return tot_num_objects
+    
+    def Compactness(self, item_in_box, item_volumes, box_hm):
+        #-- Function that computes compactness 
+        total_volume = 0
+        for i,_ in enumerate(item_in_box):
+            total_volume += item_volumes[i]
+        box_volume = np.max(box_hm)*self.box_size[0]*self.box_size[1]
+        return total_volume/box_volume
+
+    def Pyramidality(self, item_in_box, item_volumes, box_hm):
+        #-- Function that computes piramidality 
+        total_volume = 0
+        for i,item in enumerate(item_in_box):
+            total_volume += item_volumes[i]
+        used_volume = np.sum(box_hm)
+        return total_volume/used_volume
 
 if __name__ == '__main__':
 
@@ -402,23 +462,21 @@ if __name__ == '__main__':
     for i in range(500):
         p.stepSimulation()
 
-    #-- Compute Box HeightMap
-    HeightMap = env.box_heightmap()
-    print(' The box heightmap is: ', HeightMap)
 
-    for i in range(500):
-        p.stepSimulation()
-
-    #-- Items volume ordered
-    bbox_order = env.bbox_order()
-    print(' The bbox_order  is: ', bbox_order)
-
+    #-- Compute bounding boxes Items Volumes and orders them  
+    volume_bbox, bbox_order = env.order_by_bbox_volume(env.loaded_ids)
+    print(' The bbox_order by volume is: ', bbox_order)
+        
+    #-- Compute Item Volume
+    item_volume = env.item_volume(item_ids[0])
+    print(' The bbox_order by volume is: ', item_volume)
+        
     #-- Compute Item HeightMap and visualize it
     item_id = item_ids[0]
     orient = [0, 90, 0]
     
     Ht,Hb = env.item_hm(item_id, orient )
-    print(' The item heightmap is Ht: ', Ht, ' Hb: ', Hb )
+    print(' The item heightmap shape are Ht: ', Ht.shape, ' Hb: ', Hb.shape )
     
     env.visualize_object_heightmaps(item_id, orient)
     env.visualize_object_heightmaps_3d(item_id, orient)
@@ -426,7 +484,7 @@ if __name__ == '__main__':
     for i in range(500):
         p.stepSimulation()
 
-    #-- Pack items
+    #-- Pack items with random transformation
     for i,item_ in enumerate(item_ids):
         target_euler = [0,0,0]
         target_pos = [20-i*5,20-i*5,0] # cm
@@ -436,6 +494,25 @@ if __name__ == '__main__':
         stability = env.pack_item(item_ , transform)
         print(' Is the placement stable?', stability)
     
+    #-- Compute Box HeightMap
+    BoxHeightMap = env.box_heightmap()
+    print(' The box heightmap shape is: ', BoxHeightMap.shape)
+
+    for i in range(500):
+        p.stepSimulation()
+
+    #-- Compute Piramidality and Compactness
+    item_in_box = env.pack_item
+
+    #-- Compute  Items Volumes and orders them  
+    volume_items, volume_order = env.order_by_item_volume(env.packed)
+    print(' The bbox_order by volume is: ', volume_order)
+
+    C = env.Compactness(env.packed, volume_items, BoxHeightMap)
+    print('Compactness is: ', C)
+    P = env.Pyramidality(env.packed, volume_items, BoxHeightMap)   
+    print('Piramidality is: ', P)
+
     env.visualize_box_heightmap()
     env.visualize_box_heightmap_3d()
     
@@ -447,10 +524,13 @@ if __name__ == '__main__':
 
 
     #-- Remove all items 
-    #item_ids = env.remove_all_items()
+    item_ids = env.remove_all_items()
 
-    while True:
+    for i in range(500):
         p.stepSimulation()
+
+
+    
 
 
 
