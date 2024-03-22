@@ -1,7 +1,7 @@
 from torchview import draw_graph
 import graphviz
 graphviz.set_jupyter_format('png')
-from models import conv_block, Upsample, Downsample, final_conv_seq_net, placement_net, feat_extraction_seq_net
+from models import conv_block, Upsample, Downsample, final_conv_select_net, placement_net, feat_extraction_select_net
 import torch
 import pybullet as p
 from env import Env
@@ -24,7 +24,7 @@ if __name__ == '__main__':
     env.draw_box( width=5)
 
     #-- Load items 
-    item_numbers = np.arange(84,85)
+    item_numbers = np.arange(84,86)
     item_ids = env.load_items(item_numbers)
 
     for i in range(500):
@@ -37,9 +37,7 @@ if __name__ == '__main__':
     for i in range(500):
         p.stepSimulation()
 
-
-
-    #-- Compute the 6 views heightmaps for alle the loaded objects
+    #-- Compute the 6 views heightmaps for alle the loaded objects and store them in a numpy array
 
     principal_views = {
         "front": [0, 0, 0],
@@ -49,11 +47,38 @@ if __name__ == '__main__':
         "top": [-90, 0, 0],
         "bottom": [90, 0, 0]
     }
+    six_views_all_items = []
     for id_ in item_ids:
+        six_views_one_item = []
         for view in principal_views.values():
             Ht,_ = env.item_hm(id_, view )
-            env.visualize_object_heightmaps(id_, view, only_top = True )
-            env.visualize_object_heightmaps_3d(id_, view, only_top = True )
+            #env.visualize_object_heightmaps(id_, view, only_top = True )
+            #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
+            six_views_one_item.append(Ht) 
+        six_views_one_item = np.array(six_views_one_item)
+        six_views_all_items.append(six_views_one_item)
+    six_views_all_items = np.array(six_views_all_items) # (n_loaded_items, 6, resolution, resolution)
+
+    # -- Visualize selection network - I choose the first item
+    six_views_chosen_item = six_views_all_items[0,:,:,:] # (6, resolution, resolution)
+    
+    # -- I concatenate the box heightmap    
+    input_selection_network = np.concatenate((np.expand_dims(BoxHeightMap, axis=0), six_views_chosen_item), axis=0) # (7, resolution, resolution)
+   
+    # to account for batch = 1
+    input_selection_network = np.expand_dims(input_selection_network, axis=0) 
+    
+    #-- feat_extraction_select_net visulization 
+    feat_extraction_select_net = draw_graph(feat_extraction_select_net(use_cuda=False), input_data=[torch.tensor(input_selection_network.astype('float32'))],graph_name = 'feat_extraction_select_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
+    feat_extraction_select_net.visual_graph
+
+    #-- final_conv_select_net visulization 
+    batch_size = 30
+    K = 10
+    final_conv_select_net_graph = draw_graph(final_conv_select_net(use_cuda=False,K = K), input_size=(batch_size,512,K),graph_name = 'final_conv_select_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
+    final_conv_select_net_graph.visual_graph
+
+
 
 
     #-- Choose one Item and compute HeightMaps varying first roll, pitch and then yaw (according to the paper)
@@ -74,8 +99,8 @@ if __name__ == '__main__':
                 orient = [roll, pitch, 0]
                 roll_pitch_angles.append(np.array([roll,pitch]))
                 Ht,Hb = env.item_hm(item_id, orient )
-                #env.visualize_object_heightmaps(item_id, orient)
-                #env.visualize_object_heightmaps_3d(item_id,orient )
+                env.visualize_object_heightmaps(item_id, orient)
+                env.visualize_object_heightmaps_3d(item_id,orient )
                 Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
                 Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
                 item_heightmap = np.concatenate((Ht, Hb), axis=2)
@@ -100,13 +125,13 @@ if __name__ == '__main__':
 
     # Selection of j = 1 (determines yaw) and i = 3 (determines roll and pitch) to test the networks  - from item_heightmaps_RPY of shape: (num_yaws, num_RP, resolution, resolution, 2) -
     
-    input_selection_network = np.transpose(np.concatenate((np.expand_dims(BoxHeightMap, axis=2), item_heightmaps_RPY[1,3,:,:]), axis=2), (2, 0, 1))
+    input_placement_network = np.transpose(np.concatenate((np.expand_dims(BoxHeightMap, axis=2), item_heightmaps_RPY[1,3,:,:]), axis=2), (2, 0, 1))
    
     # to accounto for batch = 1
-    input_selection_network = np.expand_dims(input_selection_network, axis=0) 
+    input_placement_network = np.expand_dims(input_placement_network, axis=0) 
     
     #-- placement_net visulize
-    placement_net_graph = draw_graph(placement_net(), input_data=[torch.tensor(input_selection_network.astype('float32'))],graph_name = 'placement_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
+    placement_net_graph = draw_graph(placement_net(), input_data=[torch.tensor(input_placement_network.astype('float32'))],graph_name = 'placement_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
     placement_net_graph.visual_graph
 
     #- Visualize BoxHeightMap, Ht, Bb for the chosen orientation
@@ -132,14 +157,6 @@ if __name__ == '__main__':
     Upsample_graph.visual_graph
 
 
-
-
-
-
-    #-- sequence_net visualize
-    #batch_size = 1
-    #sequence_net_graph = draw_graph(sequence_net(in_c=3,out_c=1), input_size=(batch_size,3,32,32),graph_name = 'sequence_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
-    #sequence_net_graph.visual_graph
 
 
 

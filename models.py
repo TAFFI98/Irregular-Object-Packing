@@ -11,63 +11,64 @@ import torchvision
 import matplotlib.pyplot as plt
 import time
 
-class final_conv_seq_net(nn.Module):
+class final_conv_select_net(nn.Module):
     def __init__(self, use_cuda, K):
-        super(final_conv_seq_net, self).__init__()
-        self.use_cuda = use_cuda
+        super(final_conv_select_net, self).__init__()
         self.num_classes = K
+        self.use_cuda = use_cuda
 
-        # Pooling operations along dimensions 3 and 4 (for the 2x2 matrices)
-        self.spatial_pooling = nn.AvgPool2d(kernel_size=(2, 2))
-
-        # Pooling operation along dimension 2 (for the 512 dimension)
-        self.channel_pooling = nn.AdaptiveAvgPool1d(1)  # Pool to output size 1
+        # Convolutional layers
+        self.conv1 = nn.Conv1d(512, 256, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv1d(256, 128, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv1d(128, 64, kernel_size=3, stride=1, padding=1)
 
         # Fully connected layers
-        self.fc1 = nn.Linear(K, 256)
-        self.fc2 = nn.Linear(256, K)
+        self.fc = nn.Linear(64, K)
 
         # Activation function
         self.relu = nn.ReLU()
 
         # Dropout layer for regularization
         self.dropout = nn.Dropout(0.5)
-        self.score = nn.Sigmoid()
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        # Apply spatial pooling along dimensions 3 and 4
-        pooled_features = self.spatial_pooling(x)
-
-        # Reshape to move the channel dimension to dimension 2
-        pooled_features = pooled_features.permute(0, 1, 3, 2)
-
-        # Apply channel pooling along dimension 2
-        pooled_features = self.channel_pooling(pooled_features)
-
-        # Squeeze to remove singleton dimensions
-        pooled_features = pooled_features.squeeze(-1)
-
-        # Apply fully connected layers
-        x = self.fc1(pooled_features)
+        # Apply convolutional layers
+        x = self.conv1(x)
         x = self.relu(x)
-        x = self.dropout(x)
-        x = self.fc2(x)
-        x = self.score(x)
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.conv3(x)
+        x = self.relu(x)
+
+        # Global average pooling
+        x = torch.mean(x, dim=2)  # Compute mean across the sequence dimension
+
+        # Apply fully connected layer
+        x = self.fc(x)
+
+        # Apply sigmoid activation
+        x = self.sigmoid(x)
 
         return x
     
-class feat_extraction_seq_net(nn.Module):
-
+class feat_extraction_select_net(nn.Module):
     def __init__(self, use_cuda): 
-        super(feat_extraction_seq_net, self).__init__()
+        super(feat_extraction_select_net, self).__init__()
     
         self.use_cuda = use_cuda
 
         # Initialize network trunks with ResNet pre-trained on ImageNet
         self.backbone = torchvision.models.resnet18(pretrained=True)
         
+        # Modify the first convolutional layer to accept 7 channels
+        self.backbone.conv1 = nn.Conv2d(7, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        
         # Remove the final average pooling and fully connected layers
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-2])
+        
+        # Add a spatial pooling layer to pool the (2, 2) features
+        self.spatial_pooling = nn.AvgPool2d(kernel_size=(2, 2))
         
         # Freeze the parameters of the backbone network
         for param in self.backbone.parameters():
@@ -76,7 +77,11 @@ class feat_extraction_seq_net(nn.Module):
     def forward(self, x):
         # Forward pass through the backbone network
         features = self.backbone(x)
-        return features
+        
+        # Apply spatial pooling to the features
+        pooled_features = self.spatial_pooling(features)
+        
+        return pooled_features
 
 class placement_net(nn.Module):
     
