@@ -46,9 +46,12 @@ class Env(object):
         self.create_box([wall_width,boxW,boxH],[-wall_width/2,boxW/2,boxH/2])
         self.create_box([wall_width,boxW,boxH],[boxL+wall_width/2,boxW/2,boxH/2])
         
-        #-- Initialize ids of the objects already packed
+        #-- Initialize ids of the objects loaded in simulation
         self.loaded_ids = []
-        
+        #-- Initialize ids of the objects already packed
+        self.packed = []
+        #-- Initialize ids of the objects not packed
+        self.unpacked = []       
         
     def create_box(self, size, pos):
         #-- Function to create the walls of the packing box
@@ -84,6 +87,7 @@ class Env(object):
                 print(urdf_path)
                 loaded_id = p.loadURDF(urdf_path, [(count//5)/4+2.2, (count%5)/4+0.2, 0.1], flags=flags)
                 self.loaded_ids.append(loaded_id)
+                self.unpacked.append(loaded_id)
         return self.loaded_ids
     
     def remove_all_items(self):
@@ -260,6 +264,9 @@ class Env(object):
     def pack_item(self, item_id, transform):
         #-- Function to reset the position and orientation of the item based on the provided transform argument[target_euler,target_pos]. 
         #-- target_pos in cm
+        if item_id in self.packed:
+            print("item {} already packed!".format(item_id))
+            return False
         z_shift = 0.005
         target_euler = transform[0:3]
         target_pos = transform[3:6]
@@ -282,6 +289,8 @@ class Env(object):
         curr_euler = np.array(p.getEulerFromQuaternion(curr_quater))
         #-- Stability (boolean) is determined by checking if the item has settled within a small tolerance of its target position and orientation. 
         stability = np.linalg.norm(new_pos-curr_pos)<0.02 and curr_euler.dot(target_euler)/(np.linalg.norm(curr_euler)*np.linalg.norm(target_euler)) > np.pi*2/3
+        self.packed.append(item_id)
+        self.unpacked.remove(item_id)
         
         return stability
             
