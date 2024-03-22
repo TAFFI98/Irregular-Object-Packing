@@ -20,7 +20,7 @@ class HM_heuristic(object):
     def pack(env, item):
         Hc = box_hm()
         if item in env.unpacked:
-            print("iten {} already packed!".format(item))
+            print("item {} already packed!".format(item))
             return False
         pitch, roll = np.meshgrid(np.arange(0,2*np.pi,np.pi/2),np.arange(0,2*np.pi,np.pi/2))
         pitch_rolls = np.array([pitch.reshape(-1), roll.reshape(-1)]).T
@@ -39,8 +39,8 @@ class HM_heuristic(object):
                             score = c*(X+Y)+np.sum(Hc)+np.sum(Update)-np.sum(Hc[X:X+w,Y:Y+h])
                             Trans.append(np.array(list(trans)+[X,Y,Z,score]))
         if len(Trans)!=0:
-        Trans = Trans[np.argsort(Trans[:,6])]
-        trans = Trans[0]
+            Trans = Trans[np.argsort(Trans[:,6])]
+            trans = Trans[0]
         if type(trans)!=type(None):
             print("Pos:%d,%d,%f" % (trans[3],trans[4],trans[5]))
             S = env.pack_item(item_id, trans)

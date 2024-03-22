@@ -16,7 +16,7 @@ from robot import Robot
 from trainer import Trainer
 from logger import Logger
 import utils
-
+from volume import box_hm, item_hm
 
 def main(args):
 
@@ -74,7 +74,7 @@ def main(args):
 
     # Initialize data logger
     logger = Logger(continue_logging, logging_directory)
-    logger.save_camera_info(robot.cam_intrinsics, robot.cam_pose, robot.cam_depth_scale) # Save camera intrinsics and pose
+    #logger.save_camera_info(robot.cam_intrinsics, robot.cam_pose, robot.cam_depth_scale) # Save camera intrinsics and pose
     logger.save_heightmap_info(workspace_limits, heightmap_resolution) # Save heightmap parameters
 
     # Find last executed iteration of pre-loaded log, and load execution info and RL variables
@@ -218,6 +218,7 @@ def main(args):
         # Make sure simulation is still stable (if not, reset simulation)
         if is_sim: robot.check_sim()
 
+        # ------ Custom ------- 
         box_heightmap = box_hm([0,0.4,0,0.4],200,200)
         item = items[order[i]]
         item_heightmaps = []
@@ -228,7 +229,7 @@ def main(args):
                 Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
                 item_heightmap = np.concatenate((Ht, Hb), axis=2)
                 item_heightmaps.append(item_heightmap)
-        
+        # ------ Custom -------    
 
         # Get latest RGB-D image
         color_img, depth_img = robot.get_camera_data()

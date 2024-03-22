@@ -24,3 +24,32 @@ The repo is organized as follows:
 	- https://github.com/eleramp/pybullet-object-models
   - OCRTOC:
     - http://www.ocrtoc.org
+    
+## Useful conda commands
+- Create conda env from yml file
+```
+conda env create -f environment.yml
+```
+- See available environments in conda
+```
+conda env list
+```
+- export and environment in yml file
+```
+conda env export > environment.yml
+```
+          
+## Install torch
+
+- Install torch in the RL_exam environment according to your device setup: https://pytorch.org/get-started/locally/
+
+For CPU
+```
+conda activate RL_exam
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+```
+For CUDA
+```
+conda activate RL_exam
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
