@@ -1,6 +1,6 @@
 The main training/testing loop iteratively performs the following steps: ​
 
-For epochs in range(n_epochs):​
+For train_episode in range(5000)::​
 
     Initialize simulation​
 
