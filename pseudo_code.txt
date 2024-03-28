@@ -1,4 +1,4 @@
-The main training/testing loop iteratively performs the following steps: ​
+The main training loop iteratively performs the following steps: ​
 
 For train_episode in range(5000)::​
 
@@ -51,5 +51,51 @@ For train_episode in range(5000)::​
                 Performs experience replay . ​
 
                 Saves model snapshots and logs information for analysis.​
+                
+                
+                
+The main testing loop iteratively performs the following steps: ​
+
+For train_episode in range(2000):​
+
+    Initialize simulation​
+
+    Load num_loaded_objects items ​
+
+    For i in range(num_loaded_objects) ​
+
+        If n_unpacked items == 0:​
+
+      	Compute the number of packed objects, stability, compactness and priamidality of the box​
+
+         	break​
+
+        else:​
+
+            	Comupute heightmap of box ​
+
+            	If no remaining space in the box:​
+
+          		Compute the number of packed objects, stability, compactness and priamidality of the box​
+
+            		break​
+
+         	else:​
+
+	          Order remaining objects accoding to BBox volume ​
+	          
+	          Select the K objects with highest BBox volume​
+
+		      Compute Heightmaps of the K objects (6 views) and concatenate with Box Heightmap ​
+
+		      Run a forward pass through the Manager network to get SCORES for the next object to be packed. ​
+
+		      Select next object to be packed according to this scores​
+
+		      For different (r,p,y) obtain heigthmaps of the remaining objects to be packed and concatenate with Box Heightmap ​
+
+		      Runs a forward pass through the worker network to get SCORES for pos (X,Y) and ori (φ, θ, ψ) of the next objec to be packed. ​
+
+		      Executes the packing action (updating variable with packed items) on the robot asynchronously in another thread. ​
 
 ​
