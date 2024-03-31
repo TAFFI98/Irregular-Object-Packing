@@ -262,7 +262,8 @@ class Env(object):
             AABB = np.array(p.getAABB(item))
             volume.append(np.product(AABB[1]-AABB[0]))
         bbox_order = np.argsort(volume)[::-1]
-        return volume, bbox_order
+        pybullet_ordered_ids = np.asarray(items_ids)[bbox_order]
+        return volume, pybullet_ordered_ids
     
     def order_by_item_volume(self,items_ids):
         #-- Function to determine the order of bounding boxes based on their volumes in descending order.
@@ -270,7 +271,8 @@ class Env(object):
         for item in items_ids:
             volume.append(self.item_volume(item))
         vol_order = np.argsort(volume)[::-1]
-        return volume, vol_order
+        pybullet_ordered_ids = np.asarray(items_ids)[vol_order]
+        return volume, pybullet_ordered_ids
 
     def grid_scan(self, xminmax, yminmax, z_start, z_end, sep):
         
@@ -335,11 +337,12 @@ class Env(object):
         curr_pos, curr_quater = p.getBasePositionAndOrientation(item_id)
         curr_euler = np.array(p.getEulerFromQuaternion(curr_quater))
         #-- Stability (boolean) is determined by checking if the item has settled within a small tolerance of its target position and orientation. 
-        stability = np.linalg.norm(new_pos-curr_pos)<0.02 and curr_euler.dot(target_euler)/(np.linalg.norm(curr_euler)*np.linalg.norm(target_euler)) > np.pi*2/3
+        stability_bool = np.linalg.norm(new_pos-curr_pos)<0.02 and curr_euler.dot(target_euler)/(np.linalg.norm(curr_euler)*np.linalg.norm(target_euler)) > np.pi*2/3
+        stability = 1 if stability_bool else 0        
         self.packed.append(item_id)
         self.unpacked.remove(item_id)
-        
-        return stability
+        NewBoxHeightMap = self.box_heightmap()
+        return NewBoxHeightMap, stability
             
     def drawAABB(self, aabb, width=1):
         #-- Function to draw a BBox in simulation
@@ -434,6 +437,7 @@ class Env(object):
         for i,_ in enumerate(item_in_box):
             total_volume += item_volumes[i]
         box_volume = np.max(box_hm)*self.box_size[0]*self.box_size[1]
+        print('Compactness is: ', total_volume/box_volume)
         return total_volume/box_volume
 
     def Pyramidality(self, item_in_box, item_volumes, box_hm):
@@ -442,89 +446,93 @@ class Env(object):
         for i,item in enumerate(item_in_box):
             total_volume += item_volumes[i]
         used_volume = np.sum(box_hm)
+        print('Piramidality is: ', total_volume/used_volume)
         return total_volume/used_volume
-
+    
+    def Objective_function(self, item_in_box, item_volumes, box_hm, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25):
+        obj  = alpha * self.Compactness(item_in_box, item_volumes, box_hm) + beta * self.Pyramidality(item_in_box, item_volumes, box_hm) + gamma * stability_of_packing
+        print('Objective function is: ', obj)
+        return obj
+    
+    def Reward_function(self, obj_1, obj_2):
+        reward  = obj_2 - obj_1
+        print('------------------Reward  is: ', reward,'  ------------------')
+        return reward
+    
 if __name__ == '__main__':
 
-    #-- Path with the URDF files
+ #-- Path with the URDF files
     obj_folder_path = '/Project/Irregular-Object-Packing/objects/'
     
     #-- PyBullet Environment setup 
-    env = Env(obj_dir = obj_folder_path, is_GUI=True, box_size=(0.4,0.4,0.3), resolution = 40)
+    box_size=(0.4,0.4,0.3)
+    resolution = 50
+    env = Env(obj_dir = obj_folder_path, is_GUI=True, box_size=box_size, resolution = resolution)
+    print('----------------------------------------')
+    print('Setup of PyBullet environment: \nBox size: ',box_size, '\nResolution: ',resolution)
 
     #-- Generate csv file with objects 
     tot_num_objects = env.generate_urdf_csv()
+    print('----------------------------------------')
+    print('Generating CSV with objects')
 
     #-- Draw Box
     env.draw_box( width=5)
 
     #-- Load items 
-    item_numbers = np.arange(55,57)
+    K = 3
+    item_numbers = np.random.randint(0, 100, size=K)
     item_ids = env.load_items(item_numbers)
 
+    for i in range(500):
+        p.stepSimulation()
+    print('----------------------------------------')
+    print('K = ', K, 'Items Loaded')
+
+
+    #-- Compute Box HeightMap: shape (resolution, resolution)
+    BoxHeightMap = env.box_heightmap()
+    print('----------------------------------------')
+    print('Computed Box Height Map')
     for i in range(500):
         p.stepSimulation()
 
 
     #-- Compute bounding boxes Items Volumes and orders them  
     volume_bbox, bbox_order = env.order_by_bbox_volume(env.loaded_ids)
-    print(' The bbox_order by volume is: ', bbox_order)
+    print(' The order by bbox volume is: ', bbox_order)
         
-    #-- Compute Item Volume
-    item_volume = env.item_volume(item_ids[0])
-    print(' The bbox_order by volume is: ', item_volume)
-        
-    #-- Compute Item HeightMap and visualize it
-    item_id = item_ids[0]
-    orient = [0, 90, 0]
-    
-    Ht,Hb = env.item_hm(item_id, orient )
-    print(' The item heightmap shape are Ht: ', Ht.shape, ' Hb: ', Hb.shape )
-    
-    env.visualize_object_heightmaps(item_id, orient)
-    env.visualize_object_heightmaps_3d(item_id, orient)
 
-    for i in range(500):
-        p.stepSimulation()
+    #-- Compute  Items Volumes and orders them  
+    volume_items, volume_order = env.order_by_item_volume(env.loaded_ids)
+    print(' The order by item volume is: ', volume_order)
+
 
     #-- Pack items with random transformation
+    prev_obj = 0
     for i,item_ in enumerate(item_ids):
         target_euler = [0,0,0]
         target_pos = [20-i*5,20-i*5,0] # cm
         transform = np.empty(6,)
         transform[0:3] = target_euler
         transform[3:6] = target_pos
-        stability = env.pack_item(item_ , transform)
-        print(' Is the placement stable?', stability)
+        ''' Pack item '''
+        NewBoxHeightMap, stability_of_packing = env.pack_item(item_ , transform)
+        print(' Is the placement stable?', stability_of_packing)
+        volume_items_packed, _ = env.order_by_item_volume(env.packed)
+        current_obj = env.Objective_function(env.packed, volume_items_packed, NewBoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
+        if i>= 1:
+            ''' Compute reward '''
+            Reward = env.Reward_function(prev_obj, current_obj)
+        prev_obj = current_obj
     
-    #-- Compute Box HeightMap
-    BoxHeightMap = env.box_heightmap()
-    print(' The box heightmap shape is: ', BoxHeightMap.shape)
 
-    for i in range(500):
-        p.stepSimulation()
-
-    #-- Compute Piramidality and Compactness
-    item_in_box = env.pack_item
-
-    #-- Compute  Items Volumes and orders them  
-    volume_items, volume_order = env.order_by_item_volume(env.packed)
-    print(' The bbox_order by volume is: ', volume_order)
-
-    C = env.Compactness(env.packed, volume_items, BoxHeightMap)
-    print('Compactness is: ', C)
-    P = env.Pyramidality(env.packed, volume_items, BoxHeightMap)   
-    print('Piramidality is: ', P)
 
     env.visualize_box_heightmap()
     env.visualize_box_heightmap_3d()
     
     for i in range(500):
         p.stepSimulation()
-
-    #-- Draw item BBOX in simulation 
-    env.drawAABB(p.getAABB(item_id), width=1)
-
 
     #-- Remove all items 
     item_ids = env.remove_all_items()
