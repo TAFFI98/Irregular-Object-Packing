@@ -245,6 +245,9 @@ class Env(object):
         RayScanDT = RayScanDT[:,2]
         RayScanDT[RayScanDT==1] = np.inf
         Hb = RayScanDT*(AABB[1][2]-AABB[0][2])
+        # Replace infinity values in Hb with the maximum height of the bounding box
+        max_height = AABB[1][2] - AABB[0][2]
+        Hb[Hb == np.inf] = max_height
         Ht = Ht.astype('float64').reshape(len(ypos),len(xpos)).T
         Hb = Hb.astype('float64').reshape(len(ypos),len(xpos)).T
         
@@ -531,6 +534,7 @@ if __name__ == '__main__':
 
 
     
+
 
 
 
