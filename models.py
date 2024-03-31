@@ -53,7 +53,7 @@ class selection_net(nn.Module):
 
     def initialize_backbone(self):
         # Initialize ResNet backbone
-        backbone = torchvision.models.resnet18(pretrained=True)
+        backbone = torchvision.models.resnet18(weights=torchvision.models.resnet.ResNet18_Weights.DEFAULT)
         
         # Modify the first convolutional layer to accept 7 channels
         backbone.conv1 = nn.Conv2d(7, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -63,16 +63,21 @@ class selection_net(nn.Module):
         
         return backbone
 
-    def forward(self, input_1, input_2,item_ids):
+    def forward(self, input_1, input_2, item_ids):
 
 
-        concatenated_features = []
+        concatenated_features,k_already_packed = [],[]
         for k in range(self.K):
             # Concatenate input_1 with input_2 along dimension=-3
-            concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1) #(batch,7,resolution,resolution)
-            
-            # Forward pass through the backbone network
-            backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,2,2)
+            if not torch.any(input_1[:, k, :, :, :][input_1[:, k, :, :, :]!= 0]):
+                k_already_packed.append(k)
+                concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
+                # Forward pass through the backbone network
+                backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,2,2)
+            else:
+                concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
+                # Forward pass through the backbone network
+                backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,2,2)
             
             # Apply spatial pooling to the features
             pooled_features = self.spatial_pooling(backbone_output)           #(batch,512,1,1)
@@ -84,6 +89,9 @@ class selection_net(nn.Module):
         concatenated_features = torch.stack(concatenated_features, dim=1)      #(batch,K,512)
         final_selection_layers = final_conv_select_net(self.use_cuda,self.K)
         score_values = final_selection_layers(concatenated_features)            #(batch,K)
+        for kk in k_already_packed:
+            score_values[:,kk] = 0.0
+        
         chosen_item_index = torch.argmax(score_values, dim=1)
         chosen_item_index_pybullet = item_ids[chosen_item_index]
         return chosen_item_index_pybullet, score_values
@@ -236,11 +244,11 @@ class placement_net(nn.Module):
         input1 = input1.permute(0,3,1,2).float()#[batch,2,res,res]
         input2 = input2.permute(0,3,1,2).float() #[batch,1,res,res]
         if self.use_cuda == True :
-                    flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False).cuda(), input1.size())
-                    rotated_hm = F.grid_sample(Variable(input1, requires_grad=False).cuda(), flow_grid_before, mode='nearest') #[batch,2,res,res]
+                    flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False).cuda(), input1.size(),align_corners=True)
+                    rotated_hm = F.grid_sample(Variable(input1, requires_grad=False).cuda(), flow_grid_before, mode='nearest',align_corners=True) #[batch,2,res,res]
         elif self.use_cuda == False:
-                    flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False), input1.size())
-                    rotated_hm = F.grid_sample(Variable(input1, requires_grad=False), flow_grid_before, mode='nearest') #[batch,2,res,res]
+                    flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False), input1.size(),align_corners=True)
+                    rotated_hm = F.grid_sample(Variable(input1, requires_grad=False), flow_grid_before, mode='nearest',align_corners=True) #[batch,2,res,res]
 
         input_unet = torch.cat([rotated_hm,input2], dim=1)
 

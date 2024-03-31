@@ -106,7 +106,7 @@ class Env(object):
         ScanArray = np.array([xscan.reshape(-1),yscan.reshape(-1)])
         Start = np.insert(ScanArray,2,self.box_size[2],0).T
         End = np.insert(ScanArray,2,0,0).T
-        RayScan = np.array(p.rayTestBatch(Start, End))
+        RayScan = np.array(p.rayTestBatch(Start, End),dtype=object)
         Height = (1-RayScan[:,2].astype('float64'))*self.box_size[2]
         HeightMap = Height.reshape(self.resolution,self.resolution).T
         return HeightMap  
@@ -237,8 +237,8 @@ class Env(object):
         ScanArray = np.array([xscan.reshape(-1),yscan.reshape(-1)])
         Top = np.insert(ScanArray,2,AABB[1][2],axis=0).T
         Down = np.insert(ScanArray,2,AABB[0][2],axis=0).T
-        RayScanTD = np.array(p.rayTestBatch(Top, Down))
-        RayScanDT = np.array(p.rayTestBatch(Down, Top))
+        RayScanTD = np.array(p.rayTestBatch(Top, Down),dtype=object)
+        RayScanDT = np.array(p.rayTestBatch(Down, Top),dtype=object)
         
         # Computes the heights of points on the top (Ht) and bottom (Hb) surfaces of the bounding box based on the results of the ray casting.
         Ht = (1-RayScanTD[:,2])*(AABB[1][2]-AABB[0][2])
@@ -283,7 +283,7 @@ class Env(object):
         ScanArray = np.array([xscan.reshape(-1), yscan.reshape(-1)])
         Start = np.insert(ScanArray, 2, z_start,0).T
         End = np.insert(ScanArray, 2, z_end, 0).T
-        RayScan = np.array(p.rayTestBatch(Start, End))
+        RayScan = np.array(p.rayTestBatch(Start, End),dtype=object)
         Height = RayScan[:,2].astype('float64')*(z_end-z_start)+z_start
         HeightMap = Height.reshape(ypos.shape[0],xpos.shape[0]).T
         return HeightMap

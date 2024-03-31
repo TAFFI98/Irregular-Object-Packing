@@ -38,121 +38,134 @@ if __name__ == '__main__':
         p.stepSimulation()
     print('----------------------------------------')
     print('K = ', K, 'Items Loaded')
-
-
-    #-- Compute Box HeightMap: shape (resolution, resolution)
-    BoxHeightMap = env.box_heightmap()
-    print('----------------------------------------')
-    print('Computed Box Height Map')
-    for i in range(500):
-        p.stepSimulation()
-
-     
-    #-- Compute the 6 views heightmaps for alle the loaded objects and store them in a numpy array
-
-    principal_views = {
-        "front": [0, 0, 0],
-        "back": [180, 0, 0],
-        "left": [0, -90, 0],
-        "right": [0, 90, 0],
-        "top": [-90, 0, 0],
-        "bottom": [90, 0, 0]
-    }
-    six_views_all_items = []
-    for id_ in item_ids:
-        six_views_one_item = []
-        for view in principal_views.values():
-            Ht,_ = env.item_hm(id_, view )
-            #env.visualize_object_heightmaps(id_, view, only_top = True )
-            #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
-            six_views_one_item.append(Ht) 
-        six_views_one_item = np.array(six_views_one_item)
-        six_views_all_items.append(six_views_one_item)
-    six_views_all_items = np.array(six_views_all_items) # (K, 6, resolution, resolution)
-    print('----------------------------------------')
-    print('Computed Heightmaps of all the loaded objects with the 6 views')
-   
-    # to account for batch = 1 and channels of bounding box heightmap
-    input1_selection_network = np.expand_dims(six_views_all_items, axis=0)  #(batch, K, 6, resolution, resolution)
-    input2_selection_network = np.expand_dims(np.expand_dims(BoxHeightMap,axis=0), axis=0)  #(batch, 1, resolution, resolution)
-    print('----------------------------------------')
-    print('Computed inputs for Manager Sleection network')
-    #-- selection network
-    print('----------------------------------------')
-    print('Initialized manager network')
-    manager_network = selection_net(use_cuda=False,K = K)
-    chosen_item_index, score_values = manager_network(torch.tensor(input1_selection_network),torch.tensor(input2_selection_network),item_ids)
-    print('----------------------------------------')
-    print('Computed Manager network predictions. The object to be packed has been chosen.')
-
-    #-- Discretize roll, pitch and yaw
-    print('----------------------------------------')
-    print('Discretizing roll and pitch angles')
-    roll_angles = np.arange(0,2*np.pi,np.pi/2)*180/np.pi
-    pitch_angles = np.arange(0,2*np.pi,np.pi/2)*180/np.pi
-
-    item_heightmaps_RP = []
-    roll_pitch_angles = []
-    for r,roll in enumerate(roll_angles):
-            for p,pitch in enumerate(pitch_angles):
-                orient = [roll, pitch, 0]
-
-                roll_pitch_angles.append(np.array([roll,pitch]))
-                Ht,Hb = env.item_hm(chosen_item_index, orient )
-                #env.visualize_object_heightmaps(chosen_item_index, orient)
-                #env.visualize_object_heightmaps_3d(chosen_item_index,orient )
-                Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
-                Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
-                item_heightmap = np.concatenate((Ht, Hb), axis=2)
-                item_heightmaps_RP.append(item_heightmap)  
-    print('----------------------------------------')
-    print('Computed Bottom and Top Heightmaps for alle the roll and pitch angles')
-
-    item_heightmaps_RP = np.asarray(item_heightmaps_RP)  #(16, res, res, 2)
-    roll_pitch_angles =  np.asarray(roll_pitch_angles)   #(16, 2) ---> [roll,pitch]
-    num_rp = item_heightmaps_RP.shape[0]
-    
-    # Placement networks inputs
-    input_placement_network_1 = item_heightmaps_RP
-    input_placement_network_2 = np.expand_dims(BoxHeightMap, axis=2) #(res, res, 1)
-   
-    # to accounto for batch = 1
-    input_placement_network_1 = np.expand_dims(input_placement_network_1, axis=0) #(res, res, 1)
-    input_placement_network_2 = np.expand_dims(input_placement_network_2, axis=0) #(batch, res, res, 1)
-    print('----------------------------------------')
-    print('Computed inputs for Worker Placement network')
-    #-- placement_net visulize (too big it crashes)
-    #placement_net_graph = draw_graph(placement_net(use_cuda=False), input_data=[torch.tensor(input_placement_network_1),torch.tensor(input_placement_network_2)],graph_name = 'placement_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
-    #placement_net_graph.visual_graph
-
-    worker_network = placement_net(use_cuda=False)
-    print('----------------------------------------')
-    print('Initialized worker network')
-    Q_values , [pixel_x,pixel_y,r,p,y] = worker_network(torch.tensor(input_placement_network_1),torch.tensor(input_placement_network_2),roll_pitch_angles)
-    print('----------------------------------------')
-    print('Computed Worker network predictions. The pose of the object to be packed has been chosen.')
     print('--------------------------------------')
     print('Loaded ids before packing: ', env.loaded_ids)
     print('Packed ids before packing: ', env.packed)
     print('UnPacked ids before packing: ', env.unpacked)
     print('--------------------------------------')
+    prev_obj = 0
+    for k in range(K):
+        #-- Compute Box HeightMap: shape (resolution, resolution)
+        BoxHeightMap = env.box_heightmap()
+        print('----------------------------------------')
+        print('Computed Box Height Map')
+        
+        #-- Compute the 6 views heightmaps for alle the loaded objects and store them in a numpy array
 
-    print('----------------------------------------')
-    print('Packing chosen item with predicted pose...')
-    # Pack chosen item with predicted pose
-    target_euler = [r,p,y]
-    target_pos = [pixel_x* box_size[0]*100/resolution,pixel_y * box_size[1]*100/resolution,0] # cm
-    transform = np.empty(6,)
-    transform[0:3] = target_euler
-    transform[3:6] = target_pos
-    NewBoxHeightMap, stability = env.pack_item(chosen_item_index , transform)
-    print('--------------------------------------')
-    print('Packed chosen item ')
-    print('Is the placement stable?', stability)
-    print('Loaded ids after packing: ', env.loaded_ids)
-    print('Packed ids after packing: ', env.packed)
-    print('UnPacked ids after packing: ', env.unpacked)
-    print('--------------------------------------')
+        principal_views = {
+            "front": [0, 0, 0],
+            "back": [180, 0, 0],
+            "left": [0, -90, 0],
+            "right": [0, 90, 0],
+            "top": [-90, 0, 0],
+            "bottom": [90, 0, 0]
+        }
+        six_views_all_items = []
+        for id_ in env.loaded_ids:
+            six_views_one_item = []
+            for view in principal_views.values():
+                if id_ in env.unpacked:
+                    Ht,_ = env.item_hm(id_, view)
+                    #env.visualize_object_heightmaps(id_, view, only_top = True )
+                    #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
+                    six_views_one_item.append(Ht) 
+                if id_ in env.packed:  
+                    Ht = np.zeros((resolution,resolution))
+                    six_views_one_item.append(Ht)               
+            six_views_one_item = np.array(six_views_one_item)
+            six_views_all_items.append(six_views_one_item)
+
+
+
+        six_views_all_items = np.array(six_views_all_items) # (K, 6, resolution, resolution)
+        
+
+        print('----------------------------------------')
+        print('Computed Heightmaps of all the loaded objects with the 6 views')
+    
+        # to account for batch = 1 and channels of bounding box heightmap
+        input1_selection_network = np.expand_dims(six_views_all_items, axis=0)  #(batch, K, 6, resolution, resolution)
+        input2_selection_network = np.expand_dims(np.expand_dims(BoxHeightMap,axis=0), axis=0)  #(batch, 1, resolution, resolution)
+        print('----------------------------------------')
+        print('Computed inputs for Manager Sleection network')
+        #-- selection network
+        print('----------------------------------------')
+        print('Initialized manager network')
+        manager_network = selection_net(use_cuda=False,K = K)
+        chosen_item_index, score_values = manager_network(torch.tensor(input1_selection_network),torch.tensor(input2_selection_network), env.loaded_ids)
+        print('----------------------------------------')
+        print('Computed Manager network predictions. The object to be packed has been chosen.')
+
+        #-- Discretize roll, pitch and yaw
+        print('----------------------------------------')
+        print('Discretizing roll and pitch angles')
+        roll_angles = np.arange(0,2*np.pi,np.pi/2)*180/np.pi
+        pitch_angles = np.arange(0,2*np.pi,np.pi/2)*180/np.pi
+
+        item_heightmaps_RP = []
+        roll_pitch_angles = []
+        for r,roll in enumerate(roll_angles):
+                for p,pitch in enumerate(pitch_angles):
+                    orient = [roll, pitch, 0]
+
+                    roll_pitch_angles.append(np.array([roll,pitch]))
+                    Ht,Hb = env.item_hm(chosen_item_index, orient )
+                    #env.visualize_object_heightmaps(chosen_item_index, orient)
+                    #env.visualize_object_heightmaps_3d(chosen_item_index,orient )
+                    Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
+                    Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
+                    item_heightmap = np.concatenate((Ht, Hb), axis=2)
+                    item_heightmaps_RP.append(item_heightmap)  
+        print('----------------------------------------')
+        print('Computed Bottom and Top Heightmaps for alle the roll and pitch angles')
+
+        item_heightmaps_RP = np.asarray(item_heightmaps_RP)  #(16, res, res, 2)
+        roll_pitch_angles =  np.asarray(roll_pitch_angles)   #(16, 2) ---> [roll,pitch]
+        num_rp = item_heightmaps_RP.shape[0]
+        
+        # Placement networks inputs
+        input_placement_network_1 = item_heightmaps_RP
+        input_placement_network_2 = np.expand_dims(BoxHeightMap, axis=2) #(res, res, 1)
+    
+        # to accounto for batch = 1
+        input_placement_network_1 = np.expand_dims(input_placement_network_1, axis=0) #(res, res, 1)
+        input_placement_network_2 = np.expand_dims(input_placement_network_2, axis=0) #(batch, res, res, 1)
+        print('----------------------------------------')
+        print('Computed inputs for Worker Placement network')
+        #-- placement_net visulize (too big it crashes)
+        #placement_net_graph = draw_graph(placement_net(use_cuda=False), input_data=[torch.tensor(input_placement_network_1),torch.tensor(input_placement_network_2)],graph_name = 'placement_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
+        #placement_net_graph.visual_graph
+
+        worker_network = placement_net(use_cuda=False)
+        print('----------------------------------------')
+        print('Initialized worker network')
+        Q_values , [pixel_x,pixel_y,r,p,y] = worker_network(torch.tensor(input_placement_network_1),torch.tensor(input_placement_network_2),roll_pitch_angles)
+        print('----------------------------------------')
+        print('Computed Worker network predictions. The pose of the object to be packed has been chosen.')
+
+        print('----------------------------------------')
+        print('Packing chosen item with predicted pose...')
+        # Pack chosen item with predicted pose
+        target_euler = [r,p,y]
+        target_pos = [pixel_x* box_size[0]*100/resolution,pixel_y * box_size[1]*100/resolution,0] # cm
+        transform = np.empty(6,)
+        transform[0:3] = target_euler
+        transform[3:6] = target_pos
+        BoxHeightMap, stability_of_packing = env.pack_item(chosen_item_index , transform)
+        print('--------------------------------------')
+        print('Packed chosen item ')
+        print('Is the placement stable?', stability_of_packing)
+        print('Loaded ids after packing: ', env.loaded_ids)
+        print('Packed ids after packing: ', env.packed)
+        print('UnPacked ids after packing: ', env.unpacked)
+        print('--------------------------------------')
+        volume_items_packed, _ = env.order_by_item_volume(env.packed)
+        current_obj = env.Objective_function(env.packed, volume_items_packed, BoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
+        if i>= 1:
+            ''' Compute reward '''
+            print('Previous Objective function is: ', prev_obj)
+            Reward = env.Reward_function(prev_obj, current_obj)
+        prev_obj = current_obj
     
     """ 
     Visualize rotated Heightmaps 
