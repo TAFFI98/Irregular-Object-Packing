@@ -206,7 +206,7 @@ class placement_net(nn.Module):
         p = float(roll_pitch_angles[indices_rp,1])
         y = float(indices_y * (360 / self.n_y))
 
-        return Q_values, [pixel_x,pixel_y,r,p,y]
+        return Q_values, [pixel_x,pixel_y,r,p,y], [indices_rp, indices_y]
 
     def unet_forward(self, x):
         x = self.layer1(x)
