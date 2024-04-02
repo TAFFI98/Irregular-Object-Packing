@@ -510,7 +510,8 @@ if __name__ == '__main__':
 
     #-- Pack items with random transformation
     prev_obj = 0
-    for i,item_ in enumerate(item_ids):
+    for i,item_ in enumerate(bbox_order):
+        print('Packing item ', i+1, 'with id: ', item_)
         target_euler = [0,0,0]
         target_pos = [20-i*5,20-i*5,0] # cm
         transform = np.empty(6,)

@@ -12,7 +12,7 @@ from scipy import ndimage
 import matplotlib.pyplot as plt
 
 class Trainer(object):
-    def __init__(self, method= 'stage_2', future_reward_discount=0.5, is_testing='False',force_cpu ='False',load_snapshot=False, snapshot_file='', use_cuda=False,K=20):
+    def __init__(self, method= 'stage_2', future_reward_discount=0.5, is_testing='False',force_cpu ='False',load_snapshot=False, snapshot_file='', K=20):
 
         self.method = method
         self.K = K
@@ -32,40 +32,45 @@ class Trainer(object):
             print("CUDA is *NOT* detected. Running with only CPU.")
             self.use_cuda = False
 
-        # STAGE 2: TRAIN BOTH PLACEMENT AND SELECTION NETWORKS TOGETHER with Q_learning
-        if self.method == 'stage_2':
-
-            # Initialize worker and manager networks
-            self.manager_network = selection_net(use_cuda = self.use_cuda, K = K)
+        # IN BOTH STAGES I TRAIN THE PLACEMENT NETWORK
+        if self.method == 'stage_1' or self.method == 'stage_2':
+            # INITIALIZE WORKER NETWORK
             self.worker_network = placement_net(use_cuda = self.use_cuda)
-            
+                
             # Initialize Huber loss
             self.criterion = torch.nn.SmoothL1Loss(reduce=False) # Huber loss
             self.future_reward_discount = future_reward_discount
             if self.use_cuda:
-                self.criterion = self.criterion.cuda()
+                    self.criterion = self.criterion.cuda()
 
             # Load pre-trained model
             if load_snapshot:
-                self.manager_network.load_state_dict(torch.load(snapshot_file))
                 self.worker_network.load_state_dict(torch.load(snapshot_file))
                 print('Pre-trained model snapshot loaded from: %s' % (snapshot_file))
 
             # Convert model from CPU to GPU
             if self.use_cuda:
-                self.manager_network = self.manager_network.cuda()
-                self.worker_network = self.worker_network.cuda()
+                    self.worker_network = self.worker_network.cuda()
 
-            # Set models to training mode
-            self.manager_network.train()
+            # Set model to training mode
             self.worker_network.train()
-
             # Initialize optimizer
-            self.optimizer_manager = torch.optim.SGD(self.manager_network.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
             self.optimizer_worker = torch.optim.SGD(self.worker_network.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-
             self.iteration = 0
 
+        # STAGE 2: TRAIN ALSO SELECTION NETWORK 
+        if self.method == 'stage_2':
+
+            # INITIALIZE SELECTION NETWORK
+            self.manager_network = selection_net(use_cuda = self.use_cuda, K = K)
+            # Load pre-trained model
+            if load_snapshot:   
+                self.manager_network.load_state_dict(torch.load(snapshot_file))
+            self.manager_network.train()
+            self.optimizer_manager = torch.optim.SGD(self.manager_network.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+            # Convert model from CPU to GPU
+            if self.use_cuda:
+                self.manager_network = self.manager_network.cuda()
 
     # Compute forward pass through manager network to select the object to be packed
     def forward_manager_network(self, input1_selection_network, input2_selection_network, env):
@@ -125,4 +130,39 @@ class Trainer(object):
             print('----------------------------------------------------------------Training loss: %f' % (loss_value),'-------------------------------------------------------------------')
             self.optimizer_manager.step()
             self.optimizer_worker.step()
+
+    # Visulize the predictions of the worker network: Q_values
+    def get_prediction_vis(self, predictions, color_heightmap, best_pix_ind):
+
+        canvas = None
+        num_rotations = predictions.shape[0]
+        for canvas_row in range(int(num_rotations/4)):
+            tmp_row_canvas = None
+            for canvas_col in range(4):
+                rotate_idx = canvas_row*4+canvas_col
+                prediction_vis = predictions[rotate_idx,:,:].copy()
+                # prediction_vis[prediction_vis < 0] = 0 # assume probability
+                # prediction_vis[prediction_vis > 1] = 1 # assume probability
+                prediction_vis = np.clip(prediction_vis, 0, 1)
+                prediction_vis.shape = (predictions.shape[1], predictions.shape[2])
+                prediction_vis = cv2.applyColorMap((prediction_vis*255).astype(np.uint8), cv2.COLORMAP_JET)
+                if rotate_idx == best_pix_ind[0]:
+                    prediction_vis = cv2.circle(prediction_vis, (int(best_pix_ind[2]), int(best_pix_ind[1])), 7, (0,0,255), 2)
+                prediction_vis = ndimage.rotate(prediction_vis, rotate_idx*(360.0/num_rotations), reshape=False, order=0)
+                background_image = ndimage.rotate(color_heightmap, rotate_idx*(360.0/num_rotations), reshape=False, order=0)
+                prediction_vis = (0.5*cv2.cvtColor(background_image, cv2.COLOR_RGB2BGR) + 0.5*prediction_vis).astype(np.uint8)
+                if tmp_row_canvas is None:
+                    tmp_row_canvas = prediction_vis
+                else:
+                    tmp_row_canvas = np.concatenate((tmp_row_canvas,prediction_vis), axis=1)
+            if canvas is None:
+                canvas = tmp_row_canvas
+            else:
+                canvas = np.concatenate((canvas,tmp_row_canvas), axis=0)
+
+        return canvas
+
+
+
+
 
