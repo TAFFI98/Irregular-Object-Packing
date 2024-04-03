@@ -69,7 +69,6 @@ class selection_net(nn.Module):
 
     def forward(self, input_1, input_2, item_ids):
 
-
         concatenated_features,k_already_packed = [],[]
         for k in range(self.K):
             # Concatenate input_1 with input_2 along dimension=-3

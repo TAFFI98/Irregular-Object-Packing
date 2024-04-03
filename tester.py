@@ -5,31 +5,20 @@ Created on  Apr 3 2024
 @author: Taffi
 """
 
-import os
-import time
 import numpy as np
 import cv2
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-from utils import CrossEntropyLoss2d
 from models import  placement_net, selection_net
-from scipy import ndimage
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 
-class Trainer(object):
-    def __init__(self, method= 'stage_2', future_reward_discount=0.5,force_cpu ='False', file_snapshot_worker = 'snapshots/worker_network_1.pth', file_snapshot_manager='snapshots/manager_network_1.pth', load_snapshot_worker = False, load_snapshot_manager = False ,K=20, n_y=16):
+class Tester(object):
+    def __init__(self, force_cpu ='False',file_snapshot_worker = 'snapshots/worker_network_1.pth', file_snapshot_manager='snapshots/manager_network_1.pth', K=20, n_y=16):
         
         self.n_y = n_y # number of discrete yaw orientations
-        self.method = method # stage_1 or stage_2
         self.K = K # total number of items to be packed
-        self.epoch = 0 # epoch counter
-        lr = 1e-4 # learning rate
-        momentum = 0.9 # momentum
-        weight_decay = 2e-5 # weight decay
+
 
         # Check if CUDA can be used
         if torch.cuda.is_available() and not force_cpu:
@@ -42,48 +31,26 @@ class Trainer(object):
             print("CUDA is *NOT* detected. Running with only CPU.")
             self.use_cuda = False
 
-        # IN BOTH STAGES  TRAIN THE PLACEMENT NETWORK
-        if self.method == 'stage_1' or self.method == 'stage_2':
-            # INITIALIZE WORKER NETWORK
-            self.worker_network = placement_net(n_y = self.n_y, in_channel_unet=3, out_channel=1, use_cuda = self.use_cuda)
-                
-            # Initialize Huber loss
-            self.criterion = torch.nn.SmoothL1Loss(reduce=False) # Huber loss
-            self.future_reward_discount = future_reward_discount
-            if self.use_cuda:
-                    self.criterion = self.criterion.cuda()
+        # INITIALIZE WORKER NETWORK
+        self.worker_network = placement_net(n_y = self.n_y, in_channel_unet=3, out_channel=1, use_cuda = self.use_cuda)
+        # Load pre-trained model
+        self.worker_network.load_state_dict(torch.load(file_snapshot_worker))
+        print('Pre-trained model snapshot loaded from: %s' % (file_snapshot_worker))
 
-            # Load pre-trained model
-            if load_snapshot_worker:
-                self.epoch = int(file_snapshot_worker.split('_')[-1].split('.')[0])
-                self.worker_network.load_state_dict(torch.load(file_snapshot_worker))
-                print('Pre-trained model snapshot loaded from: %s' % (file_snapshot_worker))
+        # Convert model from CPU to GPU
+        if self.use_cuda:
+                self.worker_network = self.worker_network.cuda()
 
-            # Convert model from CPU to GPU
-            if self.use_cuda:
-                    self.worker_network = self.worker_network.cuda()
 
-            # Set model to training mode
-            self.worker_network.train()
-            # Initialize optimizer
-            self.optimizer_worker = torch.optim.SGD(self.worker_network.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-            self.iteration = 0
-
-        # STAGE 2: TRAIN ALSO SELECTION NETWORK 
-        if self.method == 'stage_2':
-
-            # INITIALIZE SELECTION NETWORK
-            self.manager_network = selection_net(use_cuda = self.use_cuda, K = K)
-            # Load pre-trained model
-            if load_snapshot_manager:   
-                self.epoch = int(file_snapshot_manager.split('_')[-1].split('.')[0])
-                self.manager_network.load_state_dict(torch.load(file_snapshot_manager))
-                print('Pre-trained model snapshot loaded from: %s' % (file_snapshot_manager))
-            self.manager_network.train()
-            self.optimizer_manager = torch.optim.SGD(self.manager_network.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-            # Convert model from CPU to GPU
-            if self.use_cuda:
-                self.manager_network = self.manager_network.cuda()
+        # INITIALIZE SELECTION NETWORK
+        self.manager_network = selection_net(use_cuda = self.use_cuda, K = K)
+        # Load pre-trained model
+        self.manager_network.load_state_dict(torch.load(file_snapshot_manager))
+        print('Pre-trained model snapshot loaded from: %s' % (file_snapshot_manager))
+    
+        # Convert model from CPU to GPU
+        if self.use_cuda:
+            self.manager_network = self.manager_network.cuda()
 
     # Compute forward pass through manager network to select the object to be packed
     def forward_manager_network(self, input1_selection_network, input2_selection_network, env):
@@ -118,70 +85,6 @@ class Trainer(object):
 
         return  Q_values 
     
-    # Compute target Q_value yt
-    def get_Qtarget_value(self, Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env):
-        '''
-        Q_values: predicted Q_values
-        indices_rp: roll and pitch index of the selected pixel
-        indices_y: yaw index of the selected pixel
-        pixel_x: x coordinate of the selected pixel
-        pixel_y: y coordinate of the selected pixel
-        prev_obj: previous objective function value
-        current_obj: current objective function value
-        env: environment object
-        output:
-        yt: target Q_value
-        '''
-        # Compute current reward
-        current_reward = env.Reward_function(prev_obj, current_obj)
-
-        # Compute expected reward:
-        future_reward = float(Q_values[0,indices_rp,indices_y,pixel_x,pixel_y])
-
-        print('Current reward: %f' % (current_reward))
-        print('Future reward: %f' % (future_reward))
-        yt = current_reward + self.future_reward_discount * future_reward
-        print('Expected reward: %f ' % (yt))
-        return yt
-
-    # Compute labels and backpropagate
-    def backprop(self, Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1):
-            '''
-            Q_values: predicted Q_values
-            yt: target Q_value
-            indices_rp: roll and pitch index of the selected pixel
-            indices_y: yaw index of the selected pixel
-            pixel_x: x coordinate of the selected pixel
-            pixel_y: y coordinate of the selected pixel
-            label_weight: weight of the label in the Huber loss
-            This function computes the labels and backpropagates the loss across the networks
-            '''
-            
-            # Compute labels to be able to pass gradients only through the selected action (pixel and orientation channel)
-            label_Q = torch.zeros_like((Q_values))
-            label_Q[:,indices_rp,indices_y,pixel_x,pixel_y] = yt * label_weight 
-            # Compute loss and backward pass
-            self.optimizer_worker.zero_grad()
-            self.optimizer_manager.zero_grad()
-            loss_value = 0
-            if self.use_cuda:
-                    loss = self.criterion(Q_values.float().cuda(), label_Q.float().cuda(), requires_grad=False)
-            else:
-                    loss = self.criterion(Q_values.float(), label_Q.float())
-            
-            loss = loss.sum()
-            loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-            loss_value = loss.cpu().data.numpy()
-            loss_value = loss_value/2
-
-            print('----------------------------------------------------------------Training loss: %f' % (loss_value),'-------------------------------------------------------------------')
-            if self.epoch % 4 == 0:
-                print('!!!!!!!!Backpropagating on manager network!!!!!!!!')
-                self.optimizer_manager.step()
-            print('!!!!!!!!Backpropagating on worker network!!!!!!!!')
-            self.optimizer_worker.step()
-            self.epoch= self.epoch+1
-
     # Visualize the predictions of the worker network: Q_values
     def visualize_Q_values(self, Q_values):
         '''
@@ -333,13 +236,3 @@ class Trainer(object):
 
         # Check if any height in the new heightmap exceeds the box height
         return max_z > box_height
-    
-    def save_snapshot(self):
-        """
-        Save snapshots of the trained models.
-        """
-        torch.save(self.worker_network.state_dict(), f'snapshots/worker_network_{self.epoch}.pth')
-
-        # If there's a manager network, save it as well
-        if self.method == 'stage_2':
-            torch.save(self.manager_network.state_dict(), f'snapshots/manager_network_{self.epoch}.pth')
