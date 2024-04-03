@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Dec 27 16:53:21 2021
+Created on  Apr 3 2024
 
-@author: Chiba
+@author: Taffi
 """
 
 import numpy as np
@@ -14,19 +14,22 @@ import pybullet_data
 import os, csv
 
 class Env(object):
-    def __init__(self, obj_dir, is_GUI=True, box_size=(0.4,0.4,0.3), resolution = 40):
+    def __init__(self, obj_dir, is_GUI = True, box_size = (0.4,0.4,0.3), resolution = 40):
         
         #-- Paths setup
-        self.obj_dir = obj_dir                                  # directory with urdfs of objects
-        self.csv_file = self.obj_dir + 'objects.csv'            # path to the csv file with list of objects index,name, path
+        self.obj_dir = obj_dir                                              # directory with urdfs of objects
+        self.csv_file = self.obj_dir + 'objects.csv'                        # path to the csv file with list of objects index,name, path
         
         #-- Box dimensions
-        self.box_size = box_size                                # size of the box
-        wall_width = 0.1                                        # width of the walls of the box
-        boxL, boxW, boxH = box_size                             # Box length width and height
+        self.box_size = box_size                                            # size of the box
+        length, width, height = box_size
+        self.bbox_box = (-length/2, -width/2, 0, length/2, width/2, height) # bounding box of the box
+
+        wall_width = 0.1                                                    # width of the walls of the box
+        boxL, boxW, boxH = box_size                                         # Box length width and height
         
         #-- Camera resolution
-        self.resolution = resolution                            # resolution of the camera     
+        self.resolution = resolution                                        # resolution of the camera     
         
         #-- Setup of PyBullet simulation
         if p.isConnected():
@@ -41,10 +44,10 @@ class Env(object):
         p.loadURDF('plane.urdf')
         
         #-- Create packing box in simulation
-        self.create_box([boxL,wall_width,boxH],[boxL/2,-wall_width/2,boxH/2])
-        self.create_box([boxL,wall_width,boxH],[boxL/2,boxW+wall_width/2,boxH/2])
-        self.create_box([wall_width,boxW,boxH],[-wall_width/2,boxW/2,boxH/2])
-        self.create_box([wall_width,boxW,boxH],[boxL+wall_width/2,boxW/2,boxH/2])
+        self.wall_1_index = self.create_box([boxL,wall_width,boxH],[boxL/2,-wall_width/2,boxH/2])
+        self.wall_2_index = self.create_box([boxL,wall_width,boxH],[boxL/2,boxW+wall_width/2,boxH/2])
+        self.wall_3_index = self.create_box([wall_width,boxW,boxH],[-wall_width/2,boxW/2,boxH/2])
+        self.wall_4_index = self.create_box([wall_width,boxW,boxH],[boxL+wall_width/2,boxW/2,boxH/2])
         
         #-- Initialize ids of the objects loaded in simulation
         self.loaded_ids = []
@@ -54,7 +57,13 @@ class Env(object):
         self.unpacked = []       
         
     def create_box(self, size, pos):
-        #-- Function to create the walls of the packing box
+        '''
+        size: list of 3 elements [length, width, height]
+        pos: list of 3 elements [x, y, z]
+        output: integer representing the index of the box in the simulation
+        
+        Function to create the walls of the packing box in simulation
+        '''
         size = np.array(size)
         shift = [0, 0, 0]
         color = [1,1,1,1]
@@ -65,15 +74,21 @@ class Env(object):
         collisionShapeId = p.createCollisionShape(shapeType=p.GEOM_BOX,
                                               collisionFramePosition=shift,
                                               halfExtents = size/2)
-        p.createMultiBody(baseMass=100,
+        box_index = p.createMultiBody(baseMass=100,
                           baseInertialFramePosition=[0, 0, 0],
                           baseCollisionShapeIndex=collisionShapeId,
                           baseVisualShapeIndex=visualShapeId,
                           basePosition=pos,
                           useMaximalCoordinates=True)
-        
+        return box_index
+    
     def load_items(self, item_ids):
-        #-- Function to load in simulation the objects on the basis of the ids
+        '''
+        item_ids: list of integers
+        output: list of integers representind the loaded ids of the objects
+        
+        Function to load in simulation the objects on the basis of the ids
+        '''
         flags = p.URDF_USE_INERTIA_FROM_FILE
 
         # Read URDF information from CSV file
@@ -91,14 +106,19 @@ class Env(object):
         return self.loaded_ids
     
     def remove_all_items(self):
-        #-- Function to remove from the simulation all the objects 
-
+        '''
+        Function to remove from the simulation all the objects
+        '''
         for loaded in self.loaded_ids:
             p.removeBody(loaded)
         self.loaded_ids = []
         
     def box_heightmap(self):
-        #-- Function to compute the box heigthmap 
+        '''
+        output: numpy array of shape (resolution, resolution)
+
+        Function to compute the box heigthmap
+        '''
         sep = self.box_size[0]/self.resolution
         xpos = np.arange(sep/2,self.box_size[0]+sep/2,sep)
         ypos = np.arange(sep/2,self.box_size[1]+sep/2,sep)
@@ -112,7 +132,13 @@ class Env(object):
         return HeightMap  
     
     def visualize_object_heightmaps(self, item_id, orient, only_top = False):
-        # Visualize the object heightmaps in 2D
+        '''
+        item_id: integer
+        orient: list of 3 elements [roll, pitch, yaw]
+        only_top: boolean
+        
+        Function to visualize the object heightmaps (bottom and top) in 2D
+        '''
         Ht, Hb = self.item_hm(item_id, orient)
         
         # Display the top-view and bottom-view heightmaps
@@ -129,7 +155,6 @@ class Env(object):
             plt.tight_layout()
             plt.show()
         if only_top == True:
-    
             # Display the top-view  heightmap
             fig, axs = plt.subplots(1, 1, figsize=(10, 5))
             axs.imshow(Ht, cmap='viridis', origin='lower', extent=[0, self.box_size[0], 0, self.box_size[1]])
@@ -139,8 +164,14 @@ class Env(object):
             plt.tight_layout()
             plt.show()
 
-    def visualize_object_heightmaps_3d(self, item_id, orient, only_top = False  ):
-        # Visulize the object heightmaps in 3d
+    def visualize_object_heightmaps_3d(self, item_id, orient, only_top = False ):
+        '''
+        item_id: integer
+        orient: list of 3 elements [roll, pitch, yaw]
+        only_top: boolean
+        
+        Function to visualize the object heightmaps (bottom and top) in 3D
+        '''
         Ht, Hb = self.item_hm(item_id, orient)
 
         # Create 3D grid
@@ -179,9 +210,10 @@ class Env(object):
             plt.show()
 
     def visualize_box_heightmap(self):
-        # Visualize the object heightmaps in 2D
+        '''
+        Function to visualize the box heightmap in 2D
+        '''
         self.Boxheightmap = self.box_heightmap()
-        
         # Display the top-view  heightmap
         fig, axs = plt.subplots(1, 1, figsize=(10, 5))
         axs.imshow(self.Boxheightmap, cmap='viridis', origin='lower', extent=[0, self.box_size[0], 0, self.box_size[1]])
@@ -192,7 +224,9 @@ class Env(object):
         plt.show()
     
     def visualize_box_heightmap_3d(self):
-        # Compute box heightmap
+        '''
+        Function to visualize the box heightmap in 3D
+        '''
         box_heightmap = self.box_heightmap()
 
         # Create 3D grid
@@ -212,7 +246,13 @@ class Env(object):
         plt.show()
 
     def item_hm(self, item_id, orient):
-        #-- Function to compute the item (with a certain item_id) heigthmap 
+        '''
+        item_id: integer
+        orient: list of 3 elements [roll, pitch, yaw]
+        output: 2 numpy arrays of shape (resolution, resolution) - bottom and top heightmaps
+        
+        Function to compute the item (with a certain item_id) heigthmap
+        '''
         
         # Stores the item original position and orientation
         old_pos, old_quater = p.getBasePositionAndOrientation(item_id)  
@@ -256,7 +296,12 @@ class Env(object):
         return Ht,Hb
     
     def order_by_bbox_volume(self,items_ids):
-        #-- Function to determine the order of bounding boxes based on their volumes in descending order.
+        '''
+        items_ids: list of integers
+        output: list of floats (bounding boxes volumes), list of integers (ordered ids)
+        
+        Function to determine the order of objects based on their bounding box volumes in descending order.
+        '''
         volume = []
         for item in items_ids:
             AABB = np.array(p.getAABB(item))
@@ -265,8 +310,23 @@ class Env(object):
         pybullet_ordered_ids = np.asarray(items_ids)[bbox_order]
         return volume, pybullet_ordered_ids
     
+    def compute_object_bbox(self,item):
+        '''
+        item: integer representing the id of the object
+        output: numpy array of shape (2,3) representing the bounding box of the object
+        
+        Function to compute the bounding box of an item
+        '''
+        AABB = np.array(p.getAABB(item))
+        return AABB
+    
     def order_by_item_volume(self,items_ids):
-        #-- Function to determine the order of bounding boxes based on their volumes in descending order.
+        '''
+        items_ids: list of integers representing the ids of the items
+        output: list of floats (objects volumes), list of integers (ordered ids)
+        
+        Function to determine the order of otems based on their volumes in descending order.
+        '''
         volume = []
         for item in items_ids:
             volume.append(self.item_volume(item))
@@ -275,8 +335,18 @@ class Env(object):
         return volume, pybullet_ordered_ids
 
     def grid_scan(self, xminmax, yminmax, z_start, z_end, sep):
-        
-        # This function performs a scanning operation in a grid pattern within a specified 3D space
+        '''
+        xminmax: list of 2 elements [xmin, xmax] representing the x-axis limits of the scanning operation
+        yminmax: list of 2 elements [ymin, ymax] representing the y-axis limits of the scanning operation
+        z_start: float representing the start height of the scanning operation
+        z_end: float representing the end height of the scanning operation
+        sep: float representing the separation between the points in the grid
+        output: numpy array of shape (resolution, resolution) representing the heightmap
+
+
+        This function performs a scanning operation in a grid pattern within a specified 3D space
+        '''
+
         xpos = np.arange(xminmax[0]+sep/2,xminmax[1]+sep/2,sep)
         ypos = np.arange(yminmax[0]+sep/2,yminmax[1]+sep/2,sep)
         xscan, yscan = np.meshgrid(xpos, ypos)
@@ -289,8 +359,12 @@ class Env(object):
         return HeightMap
     
     def item_volume(self, item):
-        # cm^3 
-        # calculating the volume of an item, taking into account rotations and scans to find the tightest enclosing volume.
+        '''
+        item: integer representing the id of the object
+        output: float representing the volume of the object
+        
+        Function to compute the volume of an item, taking into account rotations and scans to find the tightest enclosing volume.
+        ''' 
         scan_sep = 0.005
         old_pos, old_quater = p.getBasePositionAndOrientation(item)
         volume = np.inf # a big number
@@ -311,16 +385,24 @@ class Env(object):
         return volume
     
     def pack_item(self, item_id, transform):
-        #-- Function to reset the position and orientation of the item based on the provided transform argument[target_euler,target_pos]. 
-        #-- target_pos in cm
+        '''
+        item_id: integer representing the id of the object
+        transform: list of 6 elements [target_euler, target_pos]
+        outputs:
+        NewBoxHeightMap: numpy array of shape (resolution, resolution) representing the box heightmap after the packing operation
+        stability: integer representing the stability of the packing
+        old_pos: list of 3 elements representing the old position of the item
+        old_quater: list of 4 elements representing the old orientation of the item
+
+        Function to reset the position and orientation of the item based on the provided transform argument[target_euler,target_pos]. It updates the environment attributes (env.unpacked and env.packed) accordingly.
+        '''
+        old_pos, old_quater = p.getBasePositionAndOrientation(item_id) 
         if item_id in self.packed:
             print("item {} already packed!".format(item_id))
             return False
         z_shift = 0.005
         target_euler = transform[0:3]
         target_pos = transform[3:6]
-        target_pos[0] = target_pos[0]/self.resolution*self.box_size[0]
-        target_pos[1] = target_pos[1]/self.resolution*self.box_size[1]
         pos, quater = p.getBasePositionAndOrientation(item_id)
         new_quater = p.getQuaternionFromEuler(target_euler)
         p.resetBasePositionAndOrientation(item_id, pos, new_quater)
@@ -342,10 +424,27 @@ class Env(object):
         self.packed.append(item_id)
         self.unpacked.remove(item_id)
         NewBoxHeightMap = self.box_heightmap()
-        return NewBoxHeightMap, stability
-            
+        return NewBoxHeightMap, stability, old_pos, old_quater
+    
+    def unpack_item(self, item_id, old_pos, old_quater):
+        '''
+        item_id: integer representing the id of the object
+        old_pos: list of 3 elements representing the old position of the item
+        old_quater: list of 4 elements representing the old orientation of the item
+
+        Restores the position and orientation of the item to its original state and updates env (env.packed and env.packed) attributes accordingly.
+        '''
+        p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
+        self.packed.remove(item_id)
+        self.unpacked.append(item_id)
+         
     def drawAABB(self, aabb, width=1):
-        #-- Function to draw a BBox in simulation
+        '''
+        aabb: list of 2 lists representing the bounding box of the object
+        width: integer representing the width of the lines
+
+        Function to draw a BBox in simulation
+        '''
         aabbMin = aabb[0]
         aabbMax = aabb[1]
         f = [aabbMin[0], aabbMin[1], aabbMin[2]]
@@ -386,7 +485,11 @@ class Env(object):
         p.addUserDebugLine(f, t, [1, 1, 1], width)
         
     def draw_box(self, width=5):
-        #-- Function to draw the Box of the package in simulation
+        '''
+        width: integer representing the width of the lines
+
+        Function to draw the Bounding Box of the package in simulation
+        '''
         xmax = self.box_size[0]
         ymax = self.box_size[1]
         p.addUserDebugLine([0,0,0],[0,0,self.box_size[2]], [1, 1, 1], width)
@@ -403,7 +506,11 @@ class Env(object):
         p.addUserDebugLine([xmax,0,self.box_size[2]],[xmax,ymax,self.box_size[2]], [1, 1, 1], width)
     
     def generate_urdf_csv(self):
-        #-- Function that creates the CSV file with the object number, name and path
+        '''
+        output: integer representing the total number of objects
+
+        Function that creates the CSV file with the object number, name and path
+        '''
         with open(self.csv_file, 'w', newline='') as csvfile:
             fieldnames = ['Index', 'Object Name', 'URDF Path']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -432,7 +539,14 @@ class Env(object):
         return tot_num_objects
     
     def Compactness(self, item_in_box, item_volumes, box_hm):
-        #-- Function that computes compactness 
+        '''
+        item_in_box: list of integers representing the ids of the items in the box
+        item_volumes: list of floats representing the volumes of the items
+        box_hm: numpy array of shape (resolution, resolution) representing the box heightmap
+        output: float representing the compactness of the packing
+
+        Function to compute the compactness of the packing
+        '''
         total_volume = 0
         for i,_ in enumerate(item_in_box):
             total_volume += item_volumes[i]
@@ -441,7 +555,14 @@ class Env(object):
         return total_volume/box_volume
 
     def Pyramidality(self, item_in_box, item_volumes, box_hm):
-        #-- Function that computes piramidality 
+        '''
+        item_in_box: list of integers representing the ids of the items in the box
+        item_volumes: list of floats representing the volumes of the items
+        box_hm: numpy array of shape (resolution, resolution) representing the box heightmap
+        output: float representing the piramidality of the packing
+        
+        Function to compute the piramidality of the packing
+        '''
         total_volume = 0
         for i,item in enumerate(item_in_box):
             total_volume += item_volumes[i]
@@ -450,15 +571,58 @@ class Env(object):
         return total_volume/used_volume
     
     def Objective_function(self, item_in_box, item_volumes, box_hm, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25):
+        '''
+        item_in_box: list of integers representing the ids of the items in the box
+        item_volumes: list of floats representing the volumes of the items
+        box_hm: numpy array of shape (resolution, resolution) representing the box heightmap
+        stability_of_packing: float representing the stability of the packing
+        alpha: float representing the weight of the compactness term in the objective function
+        beta: float representing the weight of the pyramidality term in the objective function
+        gamma: float representing the weight of the stability term in the objective function
+        output: float representing the objective function value
+        
+        Function to compute the objective function value based on the compactness, pyramidality, and stability of the packing
+        '''
         obj  = alpha * self.Compactness(item_in_box, item_volumes, box_hm) + beta * self.Pyramidality(item_in_box, item_volumes, box_hm) + gamma * stability_of_packing
         print('Objective function is: ', obj)
         return obj
     
     def Reward_function(self, obj_1, obj_2):
+        '''
+        obj_1: float representing the objective function value before the action
+        obj_2: float representing the objective function value after the action
+        output: float representing the reward
+        
+        Function to compute the reward based on the difference between the objective function values before and after the action
+        '''
         reward  = obj_2 - obj_1
         print('------------------Reward  is: ', reward,'  ------------------')
         return reward
     
+    def get_z(self,Hc,Hb,pixel_x,pixel_y):
+        '''
+        Hc: numpy array of shape (resolution, resolution) representing the current box heightmap
+        Hb: numpy array of shape (resolution, resolution) representing the heightmap of the item
+        pixel_x: integer representing the x-coordinate of the pixel representing the item position in the box
+        pixel_y: integer representing the y-coordinate of the pixel representing the item position in the box
+        output: float representing the maximum z-value of the item in the box
+        
+        Function to compute the maximum z-value of the item in the box due to gravity
+        '''
+        w, h = Hc.shape
+        s_range = range(-w//2, w//2)
+        t_range = range(-h//2, h//2)
+        max_z = float('-inf')
+        if np.all(Hc == 0): # No items in the box
+            max_z = 0
+        else:
+            for s in s_range:
+                for t in t_range:
+                        z = Hc[pixel_x, pixel_y] - Hb[s, t]
+                        max_z = max(max_z, z)
+        return max_z
+
+
 if __name__ == '__main__':
 
  #-- Path with the URDF files

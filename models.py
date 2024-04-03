@@ -1,5 +1,9 @@
-#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""
+Created on  Apr 3 2024
 
+@author: Taffi
+"""
 from collections import OrderedDict
 import numpy as np
 from scipy import ndimage
@@ -89,6 +93,7 @@ class selection_net(nn.Module):
         concatenated_features = torch.stack(concatenated_features, dim=1)      #(batch,K,512)
         final_selection_layers = final_conv_select_net(self.use_cuda,self.K)
         score_values = final_selection_layers(concatenated_features)            #(batch,K)
+        # Set to zero the fetures of objects already packed
         for kk in k_already_packed:
             score_values[:,kk] = 0.0
         
@@ -141,7 +146,7 @@ class final_conv_select_net(nn.Module):
         return concatenated_outputs
     
 class placement_net(nn.Module):
-    def __init__(self, in_channel_unet=3, out_channel=1, n_y=16, use_cuda= False):
+    def __init__(self, n_y, in_channel_unet=3, out_channel=1, use_cuda= False):
         super(placement_net, self).__init__()
         self.n_y = n_y
         self.use_cuda = use_cuda
@@ -168,7 +173,6 @@ class placement_net(nn.Module):
 
     def forward(self, input1, input2, roll_pitch_angles):
         batch_size = input1.size(0)
-        resolution = input1.size(2)
         n_rp = input1.size(1)
 
         # Reshape input2 to match the batch size of input1
@@ -189,24 +193,7 @@ class placement_net(nn.Module):
         
         Q_values = torch.stack(rows, dim=1) #[batch, n_y, n_rp, res, res]
  
-
-        # Get the maximum  element and its indices along each dimension
-        max_index_flat = torch.argmax(Q_values.view(-1))
-        max_index = torch.unravel_index(max_index_flat, Q_values.size())
-
-
-        # Extract indices along each dimension
-        indices_y = int(max_index[1])
-        indices_rp = int(max_index[2])
-        pixel_x = int(max_index[3])
-        pixel_y = int(max_index[4])
-        
-
-        r = float(roll_pitch_angles[indices_rp,0])
-        p = float(roll_pitch_angles[indices_rp,1])
-        y = float(indices_y * (360 / self.n_y))
-
-        return Q_values, [pixel_x,pixel_y,r,p,y], [indices_rp, indices_y]
+        return Q_values
 
     def unet_forward(self, x):
         x = self.layer1(x)

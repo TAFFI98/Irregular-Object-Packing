@@ -8,7 +8,21 @@ from env import Env
 import numpy as np
 from scipy.ndimage import rotate
 from trainer import Trainer
-
+import cv2
+'''
+This file starts by setting up the PyBullet environment and generating a CSV file with object information. 
+Then, it loads a specified number of random objects into the environment and simulates the physics of the objects.
+The script uses a trainer object to train and evaluate a packing algorithm. 
+The packing algorithm has two stages: stage 1 and stage 2. 
+In stage 1, the script computes the bounding box volumes of the loaded objects and orders them based on their volumes. 
+In stage 2, the script computes heightmaps for the loaded objects from six different views and feeds them into a selection network to choose the best object to pack.
+For each object to be packed, the script discretizes the roll and pitch angles and computes heightmaps for each combination of roll and pitch angles. 
+These heightmaps are then fed into a placement network to determine the best placement position for the object. 
+The script checks the validity of the predicted placement position by considering collisions with the box margins and the height of the box.
+After each object is packed, the script computes an objective function that evaluates the quality of the packing. 
+The script uses the objective function to compute a reward and performs backpropagation to update the weights of the placement network.
+The script repeats this process for a specified number of iterations, packing objects one by one. 
+'''
 if __name__ == '__main__':
         
 
@@ -31,7 +45,7 @@ if __name__ == '__main__':
     env.draw_box( width=5)
 
     #-- Load items 
-    K = 3
+    K = 8
     item_numbers = np.random.randint(0, 100, size=K)
     item_ids = env.load_items(item_numbers)
 
@@ -135,7 +149,7 @@ if __name__ == '__main__':
         item_heightmaps_RP = np.asarray(item_heightmaps_RP)  #(16, res, res, 2)
         roll_pitch_angles =  np.asarray(roll_pitch_angles)   #(16, 2) ---> [roll,pitch]
         num_rp = item_heightmaps_RP.shape[0]
-        
+        n_y = 16
         # Placement networks inputs
         input_placement_network_1 = item_heightmaps_RP
         input_placement_network_2 = np.expand_dims(BoxHeightMap, axis=2) #(res, res, 1)
@@ -146,36 +160,40 @@ if __name__ == '__main__':
         print('----------------------------------------')
         print('Computed inputs for Worker Placement network')
         #-- FORWARD WORKER NETWORK    
-        Q_values , [pixel_x,pixel_y,r,p,y],[indices_rp, indices_y] = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2, roll_pitch_angles)
-        print('----------------------------------------')
-        print('Packing chosen item with predicted pose...')
-        # Pack chosen item with predicted pose
-        target_euler = [r,p,y]
-        target_pos = [pixel_x* box_size[0]*100/resolution,pixel_y * box_size[1]*100/resolution,0] # cm
-        transform = np.empty(6,)
-        transform[0:3] = target_euler
-        transform[3:6] = target_pos
+        Q_values = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2, roll_pitch_angles)
+        
+
+        # Show the Q values
+        Q_values_visual = trainer.visualize_Q_values(Q_values)    
+        cv2.namedWindow("Q Values", cv2.WINDOW_NORMAL)
+        cv2.imshow("Q Values", Q_values_visual)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        
+        # Check if the predicted pose is allowed: Collision with box margins and exceeded height of the box
+        indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, BoxHeightMap, chosen_item_index)
+        
+        
         print('Packing item ', k+1, 'with id: ', chosen_item_index)
-        BoxHeightMap, stability_of_packing = env.pack_item(chosen_item_index , transform)
-        print('--------------------------------------')
-        print('Packed chosen item ')
-        print('Is the placement stable?', stability_of_packing)
-        print('Loaded ids after packing: ', env.loaded_ids)
-        print('Packed ids after packing: ', env.packed)
-        print('UnPacked ids after packing: ', env.unpacked)
-        print('--------------------------------------')
+
+        
+        # Cmpute objective function
         volume_items_packed, _ = env.order_by_item_volume(env.packed)
         current_obj = env.Objective_function(env.packed, volume_items_packed, BoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
         if i>= 1:
             ''' Compute reward '''
             print('Previous Objective function is: ', prev_obj)
             print('Backpropagating...')
-            yt = trainer.get_Qtarget_value(Q_values, prev_obj, current_obj, env)
-            trainer.backprop(Q_values, yt, indices_rp, indices_y, label_weight=1)
+            yt = trainer.get_Qtarget_value(Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env)
+            trainer.backprop(Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1)
 
         prev_obj = current_obj
+        BoxHeightMap = NewBoxHeightMap
     
-    
+ 
+
+
+
 
 
 
