@@ -23,7 +23,7 @@ class Env(object):
         #-- Box dimensions
         self.box_size = box_size                                            # size of the box
         length, width, height = box_size
-        self.bbox_box = (-length/2, -width/2, 0, length/2, width/2, height) # bounding box of the box
+        self.bbox_box = (0, 0, 0, length, width, height)                    # bounding box of the box
 
         wall_width = 0.1                                                    # width of the walls of the box
         boxL, boxW, boxH = box_size                                         # Box length width and height
@@ -37,18 +37,25 @@ class Env(object):
             
         if is_GUI:
             self.physicsClient = p.connect(p.GUI)
+
         else:
             self.physicsClient = p.connect(p.DIRECT)
+        p.resetDebugVisualizerCamera(cameraDistance=0.7, cameraYaw=-90, cameraPitch=270, cameraTargetPosition=[length/2,width/2,height/2])
         p.setGravity(0,0,-10)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.loadURDF('plane.urdf')
-        
+
         #-- Create packing box in simulation
-        self.wall_1_index = self.create_box([boxL,wall_width,boxH],[boxL/2,-wall_width/2,boxH/2])
-        self.wall_2_index = self.create_box([boxL,wall_width,boxH],[boxL/2,boxW+wall_width/2,boxH/2])
-        self.wall_3_index = self.create_box([wall_width,boxW,boxH],[-wall_width/2,boxW/2,boxH/2])
-        self.wall_4_index = self.create_box([wall_width,boxW,boxH],[boxL+wall_width/2,boxW/2,boxH/2])
+        wall_1_index = self.create_box([boxL,wall_width,boxH],[boxL/2,-wall_width/2,boxH/2])
+        wall_2_index = self.create_box([boxL,wall_width,boxH],[boxL/2,boxW+wall_width/2,boxH/2])
+        wall_3_index = self.create_box([wall_width,boxW,boxH],[-wall_width/2,boxW/2,boxH/2])
+        wall_4_index = self.create_box([wall_width,boxW,boxH],[boxL+wall_width/2,boxW/2,boxH/2])
+        self.walls_indices = [wall_1_index, wall_2_index, wall_3_index, wall_4_index]
         
+        #-- Set mass to 0 to avoid box movements
+        for i in range(4):
+            p.changeDynamics(self.walls_indices[i], -1, mass=0) # Set mass to 0 to avoid box movements
+
         #-- Initialize ids of the objects loaded in simulation
         self.loaded_ids = []
         #-- Initialize ids of the objects already packed
@@ -411,7 +418,7 @@ class Env(object):
                          self.box_size[1]/2/self.resolution,z_shift]))
         new_pos = target_pos+shift
         p.resetBasePositionAndOrientation(item_id, new_pos, new_quater)
-        for i in range(100):
+        for i in range(500):
             p.stepSimulation()
             time.sleep(1./240.)
 
@@ -442,48 +449,72 @@ class Env(object):
         '''
         aabb: list of 2 lists representing the bounding box of the object
         width: integer representing the width of the lines
+        output: list of integers representing the line ids
 
         Function to draw a BBox in simulation
         '''
         aabbMin = aabb[0]
         aabbMax = aabb[1]
+        line_ids = [] # List to store the line ids
         f = [aabbMin[0], aabbMin[1], aabbMin[2]]
         t = [aabbMax[0], aabbMin[1], aabbMin[2]]
-        p.addUserDebugLine(f, t, [1, 0, 0], width)
+        line_id = p.addUserDebugLine(f, t, [1, 0, 0], width)
+        line_ids.append(line_id)
         f = [aabbMin[0], aabbMin[1], aabbMin[2]]
         t = [aabbMin[0], aabbMax[1], aabbMin[2]]
-        p.addUserDebugLine(f, t, [0, 1, 0], width)
+        line_id = p.addUserDebugLine(f, t, [0, 1, 0], width)
+        line_ids.append(line_id)
         f = [aabbMin[0], aabbMin[1], aabbMin[2]]
         t = [aabbMin[0], aabbMin[1], aabbMax[2]]
-        p.addUserDebugLine(f, t, [0, 0, 1], width)
+        line_id = p.addUserDebugLine(f, t, [0, 0, 1], width)
+        line_ids.append(line_id)
         f = [aabbMin[0], aabbMin[1], aabbMax[2]]
         t = [aabbMin[0], aabbMax[1], aabbMax[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
         f = [aabbMin[0], aabbMin[1], aabbMax[2]]
         t = [aabbMax[0], aabbMin[1], aabbMax[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
         f = [aabbMax[0], aabbMin[1], aabbMin[2]]
         t = [aabbMax[0], aabbMin[1], aabbMax[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
         f = [aabbMax[0], aabbMin[1], aabbMin[2]]
         t = [aabbMax[0], aabbMax[1], aabbMin[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
         f = [aabbMax[0], aabbMax[1], aabbMin[2]]
         t = [aabbMin[0], aabbMax[1], aabbMin[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
         f = [aabbMin[0], aabbMax[1], aabbMin[2]]
         t = [aabbMin[0], aabbMax[1], aabbMax[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
         f = [aabbMax[0], aabbMax[1], aabbMax[2]]
         t = [aabbMin[0], aabbMax[1], aabbMax[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
         f = [aabbMax[0], aabbMax[1], aabbMax[2]]
         t = [aabbMax[0], aabbMin[1], aabbMax[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
         f = [aabbMax[0], aabbMax[1], aabbMax[2]]
         t = [aabbMax[0], aabbMax[1], aabbMin[2]]
-        p.addUserDebugLine(f, t, [1, 1, 1], width)
-        
+        line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
+        line_ids.append(line_id)
+        return line_ids
+
+    def removeAABB(self, line_ids):
+        '''
+        line_ids: list of line ids returned by drawAABB()
+
+        Function to remove a BBox from simulation
+        '''
+        for line_id in line_ids:
+            p.removeUserDebugItem(line_id)
+
     def draw_box(self, width=5):
         '''
         width: integer representing the width of the lines

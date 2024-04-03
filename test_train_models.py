@@ -165,10 +165,12 @@ if __name__ == '__main__':
 
         # Show the Q values
         Q_values_visual = trainer.visualize_Q_values(Q_values)    
+        '''
         cv2.namedWindow("Q Values", cv2.WINDOW_NORMAL)
         cv2.imshow("Q Values", Q_values_visual)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+        '''
         
         # Check if the predicted pose is allowed: Collision with box margins and exceeded height of the box
         indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, BoxHeightMap, chosen_item_index)
@@ -190,7 +192,36 @@ if __name__ == '__main__':
         prev_obj = current_obj
         BoxHeightMap = NewBoxHeightMap
     
- 
+    """ 
+    Visualize rotated Heightmaps 
+    yaw_angles = np.arange(0,2*np.pi,np.pi/2)*180/np.pi
+    num_yaws = yaw_angles.shape[0]
+    item_heightmaps_RPY = np.empty(shape=(num_yaws, num_rp, item_heightmaps_RP.shape[1],item_heightmaps_RP.shape[2], 2)) # shape: (num_yaws, num_RP, resolution, resolution, 2)
+
+    for j,yaw in enumerate(yaw_angles):
+        for i in range(num_rp):
+                    # Rotate Ht
+                    Ht = item_heightmaps_RP[i,:,:,0]
+                    rotated_Ht = rotate(Ht, yaw, reshape=False)
+                    item_heightmaps_RPY[j,i,:,:,0] = rotated_Ht
+
+                    # Rotate Hb
+                    Hb = item_heightmaps_RP[i,:,:,1]
+                    rotated_Hb = rotate(Hb, yaw, reshape=False)
+                    item_heightmaps_RPY[j,i,:,:,1] = rotated_Hb 
+
+    #-- conv_block visualize
+    batch_size = 1
+    conv_block_graph = draw_graph(conv_block(in_c=3,out_c=1), input_size=(batch_size,3,200,200),graph_name = 'conv_block',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/', graph_dir ='TB')
+    conv_block_graph.visual_graph
+
+    #-- Downsample visualize
+    Downsample_graph = draw_graph(Downsample(channel=1), input_size=(batch_size,1,32,32),graph_name = 'Downsample',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/', graph_dir ='LR')
+    Downsample_graph.visual_graph
+
+    #-- Upsample visualize
+    Upsample_graph = draw_graph(Upsample(channel=3), input_data=[torch.rand(batch_size,3,32,32), torch.rand(batch_size,3,64,64)],graph_name = 'Upsample',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/',  graph_dir ='LR')
+    Upsample_graph.visual_graph""" 
 
 
 

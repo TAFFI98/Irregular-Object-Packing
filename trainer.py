@@ -268,20 +268,29 @@ class Trainer(object):
             BoxHeightMap, stability_of_packing, old_pos, old_quater = env.pack_item(chosen_item_index , transform)
             # Check collision with box margins 
             BBOX_object = env.compute_object_bbox(chosen_item_index)
+            # Show the bounding box of the object to check collisions viusllay
+            bbox_obj_line_ids = env.drawAABB(BBOX_object, width=1)
             collision = self.bounding_box_collision(env.bbox_box, BBOX_object)
+
             # Use the collision result
             if collision:
                 print("Collision detected!")
-                env.drawAABB(BBOX_object, width=1)
+                # Place the object back to its original position since this predicted pose would not be valid
                 env.unpack_item(chosen_item_index, old_pos, old_quater)
+                # Remove the bounding box of the object
+                # Restore the position of the box since the invalid packing could have modified it
+                env.removeAABB(bbox_obj_line_ids)
                 continue
             else:
                 print("No collision.")
                 # Check if the height of the box is exceeded
-                height_exceeded = self.check_height_exceeded(box_heightmap = BoxHeightMap, object_heightmap = Hb_selected_obj, box_height = box_height)
+                height_exceeded = self.check_height_exceeded(box_heightmap = BoxHeightMap, box_height = box_height)
                 if height_exceeded:
                     print("Box height exceeded!")
+                    # place the object back to its original position since this predicted pose would not be valid
                     env.unpack_item(chosen_item_index, old_pos, old_quater)
+                    # Restore the position of the box since the invalid packing could have modified it
+                    env.removeAABB(bbox_obj_line_ids)
                     continue
                 else:
                     print("Box height not exceeded.")
@@ -292,32 +301,32 @@ class Trainer(object):
                     print('Packed ids after packing: ', env.packed)
                     print('UnPacked ids after packing: ', env.unpacked)
                     print('--------------------------------------')
+                    env.removeAABB(bbox_obj_line_ids)
                     return indices_rp, indices_y, pixel_x, pixel_y, BoxHeightMap, stability_of_packing
         
     def bounding_box_collision(self, box1, box2):
         '''
         box1: bounding box of the box
         box2: bounding box of the object
-        output: boolean indicating if there is a collision between the two bounding boxes
+        
+        output: boolean indicating if the bounding box of the object is entirely inside the bounding box of the box (sensibility: mm)
         '''
         # Each box is a tuple of (min_x, min_y, min_z, max_x, max_y, max_z)
-        min_x1, min_y1, min_z1, max_x1, max_y1, max_z1 = box1
-        min_x2, min_y2, min_z2, max_x2, max_y2, max_z2 = box2[0,0],box2[0,1],box2[0,2],box2[1,0],box2[1,1],box2[1,2]
+        min_x1, min_y1, _, max_x1, max_y1, _ = [round(x, 3) for x in box1]
+        min_x2, min_y2, max_x2, max_y2 = [round(x, 3) for x in [box2[0,0],box2[0,1],box2[1,0],box2[1,1]]]
 
-        # Check for intersection
-        return (min_x1 <= max_x2 and max_x1 >= min_x2 and
-                min_y1 <= max_y2 and max_y1 >= min_y2 and
-                min_z1 <= max_z2 and max_z1 >= min_z2)
+        # Check if box2 is entirely inside box1
+        return not (min_x1 <= min_x2 and max_x1 >= max_x2 and
+                min_y1 <= min_y2 and max_y1 >= max_y2 )
 
-    def check_height_exceeded(self,box_heightmap, object_heightmap, box_height):
+    def check_height_exceeded(self,box_heightmap, box_height):
         '''
         box_heightmap: heightmap of the box
-        object_heightmap: heightmap of the object
         box_height: height of the box
         output: boolean indicating if the height of the box is exceeded
         '''
         # Compute the new heightmap after placing the object
-        new_heightmap = np.maximum(box_heightmap, object_heightmap)
+        max_z = box_heightmap.max()
 
         # Check if any height in the new heightmap exceeds the box height
-        return np.any(new_heightmap > box_height)   
+        return max_z > box_height
