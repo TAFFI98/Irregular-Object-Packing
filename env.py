@@ -270,7 +270,8 @@ class Env(object):
         
         # Extracts the boundingbox of the item
         AABB = p.getAABB(item_id)                                      
-        
+        obj_length = AABB[1][0] - AABB[0][0]
+        obj_width = AABB[1][1] - AABB[0][1]
         # Computation of a grid of points within the bounding box of the item. 
         sep_x = (AABB[1][0] - AABB[0][0])/self.resolution
         sep_y = (AABB[1][1] - AABB[0][1])/self.resolution
@@ -300,7 +301,7 @@ class Env(object):
         
         # Resets the initial orientation for the item
         p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
-        return Ht,Hb
+        return Ht,Hb, obj_length, obj_width
     
     def order_by_bbox_volume(self,items_ids):
         '''
@@ -630,7 +631,7 @@ class Env(object):
         print('------------------Reward  is: ', reward,'  ------------------')
         return reward
     
-    def get_z(self,Hc,Hb,pixel_x,pixel_y):
+    def get_z(self,Hc,Hb,pixel_x,pixel_y,obj_length,obj_width):
         '''
         Hc: numpy array of shape (resolution, resolution) representing the current box heightmap
         Hb: numpy array of shape (resolution, resolution) representing the heightmap of the item
@@ -640,17 +641,23 @@ class Env(object):
         
         Function to compute the maximum z-value of the item in the box due to gravity
         '''
-        w, h = Hc.shape
-        s_range = range(-w//2, w//2)
-        t_range = range(-h//2, h//2)
+
+        s_range = range(-Hb.shape[0]//2, Hb.shape[0]//2)
+        t_range = range(-Hb.shape[1]//2, Hb.shape[1]//2)
         max_z = float('-inf')
+        ss_range = range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)
+        tt_range = range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)
+
         if np.all(Hc == 0): # No items in the box
             max_z = 0
         else:
             for s in s_range:
                 for t in t_range:
-                        z = Hc[pixel_x, pixel_y] - Hb[s, t]
-                        max_z = max(max_z, z)
+                        for ss in ss_range:
+                            for tt in tt_range:
+                                if 0 <= pixel_x+ss < Hc.shape[0] and 0 <= pixel_y+tt < Hc.shape[1]:
+                                    z = Hc[pixel_x+ss, pixel_y+tt] - Hb[s, t]
+                                    max_z = max(max_z, z)
         return max_z
 
 
@@ -738,6 +745,7 @@ if __name__ == '__main__':
 
 
     
+
 
 
 

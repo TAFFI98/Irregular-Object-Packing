@@ -31,7 +31,7 @@ in training mode after each object is packed the snapshot is saved.
 '''
 if __name__ == '__main__':
         
-    is_testing = 'False'
+    is_testing = 'False' # True or False
     #-- Path with the URDF files
     obj_folder_path = '/Project/Irregular-Object-Packing/objects/'
     
@@ -101,7 +101,7 @@ if __name__ == '__main__':
                     six_views_one_item = []
                     for view in principal_views.values():
                         if id_ in env.unpacked:
-                            Ht,_ = env.item_hm(id_, view)
+                            Ht,_,obj_length,obj_width  = env.item_hm(id_, view)
                             #env.visualize_object_heightmaps(id_, view, only_top = True )
                             #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
                             six_views_one_item.append(Ht) 
@@ -143,7 +143,7 @@ if __name__ == '__main__':
                         orient = [roll, pitch, 0]
 
                         roll_pitch_angles.append(np.array([roll,pitch]))
-                        Ht,Hb = env.item_hm(chosen_item_index, orient )
+                        Ht,Hb, obj_length, obj_width= env.item_hm(chosen_item_index, orient )
                         #env.visualize_object_heightmaps(chosen_item_index, orient)
                         #env.visualize_object_heightmaps_3d(chosen_item_index,orient )
                         Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
@@ -225,7 +225,7 @@ if __name__ == '__main__':
                     six_views_one_item = []
                     for view in principal_views.values():
                         if id_ in env.unpacked:
-                            Ht,_ = env.item_hm(id_, view)
+                            Ht,_,obj_length,obj_width = env.item_hm(id_, view)
                             #env.visualize_object_heightmaps(id_, view, only_top = True )
                             #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
                             six_views_one_item.append(Ht) 
@@ -261,7 +261,7 @@ if __name__ == '__main__':
                         orient = [roll, pitch, 0]
 
                         roll_pitch_angles.append(np.array([roll,pitch]))
-                        Ht,Hb = env.item_hm(chosen_item_index, orient )
+                        Ht,Hb, obj_length,obj_width= env.item_hm(chosen_item_index, orient )
                         #env.visualize_object_heightmaps(chosen_item_index, orient)
                         #env.visualize_object_heightmaps_3d(chosen_item_index,orient )
                         Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
@@ -314,4 +314,39 @@ if __name__ == '__main__':
         print('Number of packed items: ', len(env.packed))
 
 
-    
+    """ 
+    Visualize rotated Heightmaps 
+    yaw_angles = np.arange(0,2*np.pi,np.pi/2)*180/np.pi
+    num_yaws = yaw_angles.shape[0]
+    item_heightmaps_RPY = np.empty(shape=(num_yaws, num_rp, item_heightmaps_RP.shape[1],item_heightmaps_RP.shape[2], 2)) # shape: (num_yaws, num_RP, resolution, resolution, 2)
+
+    for j,yaw in enumerate(yaw_angles):
+        for i in range(num_rp):
+                    # Rotate Ht
+                    Ht = item_heightmaps_RP[i,:,:,0]
+                    rotated_Ht = rotate(Ht, yaw, reshape=False)
+                    item_heightmaps_RPY[j,i,:,:,0] = rotated_Ht
+
+                    # Rotate Hb
+                    Hb = item_heightmaps_RP[i,:,:,1]
+                    rotated_Hb = rotate(Hb, yaw, reshape=False)
+                    item_heightmaps_RPY[j,i,:,:,1] = rotated_Hb 
+
+    #-- conv_block visualize
+    batch_size = 1
+    conv_block_graph = draw_graph(conv_block(in_c=3,out_c=1), input_size=(batch_size,3,200,200),graph_name = 'conv_block',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/', graph_dir ='TB')
+    conv_block_graph.visual_graph
+
+    #-- Downsample visualize
+    Downsample_graph = draw_graph(Downsample(channel=1), input_size=(batch_size,1,32,32),graph_name = 'Downsample',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/', graph_dir ='LR')
+    Downsample_graph.visual_graph
+
+    #-- Upsample visualize
+    Upsample_graph = draw_graph(Upsample(channel=3), input_data=[torch.rand(batch_size,3,32,32), torch.rand(batch_size,3,64,64)],graph_name = 'Upsample',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/',  graph_dir ='LR')
+    Upsample_graph.visual_graph""" 
+
+
+
+
+
+

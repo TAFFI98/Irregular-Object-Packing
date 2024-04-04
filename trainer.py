@@ -262,8 +262,8 @@ class Trainer(object):
             # Pack chosen item with predicted pose
             target_euler = [r,p,y]
             # Compute z coordinate
-            _,Hb_selected_obj = env.item_hm(chosen_item_index, target_euler )
-            z = env.get_z(BoxHeightMap,Hb_selected_obj,pixel_x, pixel_y)
+            _,Hb_selected_obj,obj_length,obj_width = env.item_hm(chosen_item_index, target_euler )
+            z = env.get_z(BoxHeightMap,Hb_selected_obj,pixel_x, pixel_y,obj_length,obj_width)
             target_pos = [pixel_x * env.box_size[0]/env.resolution,pixel_y * env.box_size[1]/env.resolution, z] # m
             transform = np.empty(6,)
             transform[0:3] = target_euler
@@ -343,3 +343,4 @@ class Trainer(object):
         # If there's a manager network, save it as well
         if self.method == 'stage_2':
             torch.save(self.manager_network.state_dict(), f'snapshots/manager_network_{self.epoch}.pth')
+
