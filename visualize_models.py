@@ -12,7 +12,7 @@ if __name__ == '__main__':
         
 
     #-- Path with the URDF files
-    obj_folder_path = '/Project/Irregular-Object-Packing/objects/'
+    obj_folder_path = 'Irregular-Object-Packing/objects'
     
     #-- PyBullet Environment setup 
     env = Env(obj_dir = obj_folder_path, is_GUI=True, box_size=(0.4,0.4,0.3), resolution = 50)
@@ -52,8 +52,8 @@ if __name__ == '__main__':
         six_views_one_item = []
         for view in principal_views.values():
             Ht,_ = env.item_hm(id_, view )
-            env.visualize_object_heightmaps(id_, view, only_top = True )
-            env.visualize_object_heightmaps_3d(id_, view, only_top = True )
+            # env.visualize_object_heightmaps(id_, view, only_top = True )
+            # env.visualize_object_heightmaps_3d(id_, view, only_top = True )
             six_views_one_item.append(Ht) 
         six_views_one_item = np.array(six_views_one_item)
         six_views_all_items.append(six_views_one_item)
@@ -69,13 +69,13 @@ if __name__ == '__main__':
     input_selection_network = np.expand_dims(input_selection_network, axis=0) 
     
     #-- feat_extraction_select_net visulization 
-    feat_extraction_select_net = draw_graph(feat_extraction_select_net(use_cuda=False), input_data=[torch.tensor(input_selection_network.astype('float32'))],graph_name = 'feat_extraction_select_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
+    feat_extraction_select_net = draw_graph(feat_extraction_select_net(use_cuda=False), input_data=[torch.tensor(input_selection_network.astype('float32'))],graph_name = 'feat_extraction_select_net',save_graph= True, directory= 'Irregular-Object-Packing/models_plot/')
     feat_extraction_select_net.visual_graph
 
     #-- final_conv_select_net visulization 
     batch_size = 30
     K = 10
-    final_conv_select_net_graph = draw_graph(final_conv_select_net(use_cuda=False,K = K), input_size=(batch_size,512,K),graph_name = 'final_conv_select_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
+    final_conv_select_net_graph = draw_graph(final_conv_select_net(use_cuda=False,K = K), input_size=(batch_size,512,K),graph_name = 'final_conv_select_net',save_graph= True, directory= 'Irregular-Object-Packing/models_plot/')
     final_conv_select_net_graph.visual_graph
 
 
@@ -97,8 +97,8 @@ if __name__ == '__main__':
                 orient = [roll, pitch, 0]
                 roll_pitch_angles.append(np.array([roll,pitch]))
                 Ht,Hb = env.item_hm(item_id, orient )
-                env.visualize_object_heightmaps(item_id, orient)
-                env.visualize_object_heightmaps_3d(item_id,orient )
+                # env.visualize_object_heightmaps(item_id, orient)
+                # env.visualize_object_heightmaps_3d(item_id,orient )
                 Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
                 Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
                 item_heightmap = np.concatenate((Ht, Hb), axis=2)
@@ -129,7 +129,7 @@ if __name__ == '__main__':
     input_placement_network = np.expand_dims(input_placement_network, axis=0) 
     
     #-- placement_net visulize
-    placement_net_graph = draw_graph(placement_net(), input_data=[torch.tensor(input_placement_network.astype('float32'))],graph_name = 'placement_net',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/')
+    placement_net_graph = draw_graph(placement_net(), input_data=[torch.tensor(input_placement_network.astype('float32'))],graph_name = 'placement_net',save_graph= True, directory= 'Irregular-Object-Packing/models_plot/')
     placement_net_graph.visual_graph
 
     #- Visualize BoxHeightMap, Ht, Bb for the chosen orientation
@@ -143,15 +143,15 @@ if __name__ == '__main__':
 
     #-- conv_block visualize
     batch_size = 1
-    conv_block_graph = draw_graph(conv_block(in_c=3,out_c=1), input_size=(batch_size,3,200,200),graph_name = 'conv_block',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/', graph_dir ='TB')
+    conv_block_graph = draw_graph(conv_block(in_c=3,out_c=1), input_size=(batch_size,3,200,200),graph_name = 'conv_block',save_graph= True, directory= 'Irregular-Object-Packing/models_plot/', graph_dir ='TB')
     conv_block_graph.visual_graph
 
     #-- Downsample visualize
-    Downsample_graph = draw_graph(Downsample(channel=1), input_size=(batch_size,1,32,32),graph_name = 'Downsample',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/', graph_dir ='LR')
+    Downsample_graph = draw_graph(Downsample(channel=1), input_size=(batch_size,1,32,32),graph_name = 'Downsample',save_graph= True, directory= 'Irregular-Object-Packing/models_plot/', graph_dir ='LR')
     Downsample_graph.visual_graph
 
     #-- Upsample visualize
-    Upsample_graph = draw_graph(Upsample(channel=3), input_data=[torch.rand(batch_size,3,32,32), torch.rand(batch_size,3,64,64)],graph_name = 'Upsample',save_graph= True, directory= '/Project/Irregular-Object-Packing/models_plot/',  graph_dir ='LR')
+    Upsample_graph = draw_graph(Upsample(channel=3), input_data=[torch.rand(batch_size,3,32,32), torch.rand(batch_size,3,64,64)],graph_name = 'Upsample',save_graph= True, directory= 'Irregular-Object-Packing/models_plot/',  graph_dir ='LR')
     Upsample_graph.visual_graph
 
 

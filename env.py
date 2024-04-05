@@ -444,7 +444,7 @@ class Env(object):
 if __name__ == '__main__':
 
     #-- Path with the URDF files
-    obj_folder_path = '/Project/Irregular-Object-Packing/objects/'
+    obj_folder_path = '/Irregular-Object-Packing/objects/'
     
     #-- PyBullet Environment setup 
     env = Env(obj_dir = obj_folder_path, is_GUI=True, box_size=(0.4,0.4,0.3), resolution = 40)

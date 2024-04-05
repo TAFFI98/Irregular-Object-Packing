@@ -412,7 +412,7 @@ if __name__ == '__main__':
     parser.add_argument('--future_reward_discount', dest='future_reward_discount', type=float, action='store', default=0.5)
     parser.add_argument('--experience_replay', dest='experience_replay', action='store_true', default=False,              help='use prioritized experience replay?')
     parser.add_argument('--explore_rate_decay', dest='explore_rate_decay', action='store_true', default=False)
-    parser.add_argument('--grasp_only', dest='grasp_only', action='store_true', default=False)
+    # parser.add_argument('--grasp_only', dest='grasp_only', action='store_true', default=False)
 
     # -------------- Testing options --------------
     parser.add_argument('--is_testing', dest='is_testing', action='store_true', default=False)

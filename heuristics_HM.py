@@ -49,7 +49,7 @@ class HM_heuristic(object):
 if __name__ == '__main__':
 
     #-- Path with the URDF files
-    obj_folder_path = '/Project/Irregular-Object-Packing/objects/'
+    obj_folder_path = 'Irregular-Object-Packing/objects/'
     
     #-- PyBullet Environment setup 
     env = Env(obj_dir = obj_folder_path, is_GUI=True, box_size=(0.4,0.4,0.3), resolution = 50)
@@ -61,7 +61,7 @@ if __name__ == '__main__':
     env.draw_box( width=5)
 
     #-- Load items 
-    item_numbers = np.arange(84,95)
+    item_numbers = np.arange(80,95)
     item_ids = env.load_items(item_numbers)
 
     for i in range(500):
