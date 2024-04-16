@@ -72,7 +72,7 @@ def main(args):
         # check if item is already packed
         unpacked = env.unpacked
 
-        if len(unpacked) == 0 or is_box_full: 
+        if len(unpacked) == 0: 
             break
 
         # check if item is packable by maximum height
