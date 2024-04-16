@@ -29,7 +29,8 @@ class HM_heuristic(object):
         for pitch_roll in pitch_rolls:
             transforms = np.concatenate((np.repeat([pitch_roll],4,axis=0).T,[np.arange(0,2*np.pi,np.pi/2)]),axis=0).T
             for trans in transforms:       
-                Ht, Hb = env.item_hm(item, trans)
+                values = env.item_hm(item, trans)
+                Ht, Hb = values[0], values[1]
                 w,h = Ht.shape
                 for X in range(0, BoxW-w+1):
                     for Y in range(0, BoxH-h+1):
@@ -49,7 +50,7 @@ class HM_heuristic(object):
 if __name__ == '__main__':
 
     #-- Path with the URDF files
-    obj_folder_path = 'Irregular-Object-Packing/objects/'
+    obj_folder_path = 'objects/'
     
     #-- PyBullet Environment setup 
     env = Env(obj_dir = obj_folder_path, is_GUI=True, box_size=(0.4,0.4,0.3), resolution = 50)
@@ -61,7 +62,7 @@ if __name__ == '__main__':
     env.draw_box( width=5)
 
     #-- Load items 
-    item_numbers = np.arange(80,95)
+    item_numbers = np.arange(80,85)
     item_ids = env.load_items(item_numbers)
 
     for i in range(500):
