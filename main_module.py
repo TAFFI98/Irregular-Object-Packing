@@ -46,6 +46,9 @@ def main(args):
     item_numbers = np.random.randint(0, 100, size=K)
     item_ids = env.load_items(item_numbers)
 
+    # volumes, sorted_ids = env.order_by_item_volume(item_ids)
+    volume_bbox, bbox_order = env.order_by_bbox_volume(item_ids)
+
     #for i in range(500):
     #    p.stepSimulation()
 
@@ -58,15 +61,13 @@ def main(args):
     print('--------------------------------------')
     prev_obj = 0
 
-    box_volume = box_size[0] * box_size[1] * box_size[2] # volume of the box, CHECK UNIT MEASURES!!!!!
-    eps_volume = 0.1 * box_volume 
-
-    total_volume = 0
+    eps_height = 0.05 * box_size[2] # 5% of box height
 
     # loop over the loaded objects
     for i in range(K):
         item = item_ids[i]
-        Hc = env.box_heightmap()
+        heightmap_box = env.box_heightmap()
+        print(heightmap_box.shape)
 
         # check if item is already packed
         unpacked = env.unpacked
@@ -74,23 +75,29 @@ def main(args):
         if len(unpacked) == 0 or is_box_full: 
             break
 
-        # compute total volume with new item
-        item_volume = env.item_volume(item)
-        total_volume = total_volume + item_volume
-
-        is_box_full = (box_volume - total_volume) < eps_volume # in altrenativa potrei controllare la heightmap, ma non sarebbe sufficiente calcolare il valore massimo sulla z.
+        # check if item is packable by maximum height
+        max_Heightmap_box = np.max(heightmap_box)
+        is_box_full = max_Heightmap_box > box_size[2] - eps_height
         
-        # check if item is packable by volume
         if  is_box_full: 
             break
         
+        # selection strategy according to the chosen stage
+
         if stage == 1:
 
-            # sort objects by volume 
-            volumes, sorted_ids = env.order_by_item_volume(item_ids)
-
-
+            # pack largest object first
+            print('---------------------------------------')
             print('Stage 1')
+            
+            next_obj = bbox_order[i]
+
+        elif stage == 2:
+
+            # select k objects with the largest boubding box volume
+            print('---------------------------------------')
+            print('Stage 2')
+            
 
     print('End of main_module.py')
 
@@ -106,6 +113,7 @@ if __name__ == '__main__':
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/')
     parser.add_argument('--train', dest='train', action='store', default=False)
     parser.add_argument('--stage', dest='stage', action='store', default=1)
+    parser.add_argument('--K', dest='K', action='store', default=3)
 
     args = parser.parse_args()
     main(args) 
