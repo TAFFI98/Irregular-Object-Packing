@@ -98,6 +98,35 @@ def main(args):
             print('---------------------------------------')
             print('Stage 2')
             
+            k_obj = args.k_obj
+            k_indexes = bbox_order[:k_obj]
+
+            principal_views = {
+                    "front": [0, 0, 0],
+                    "back": [180, 0, 0],
+                    "left": [0, -90, 0],
+                    "right": [0, 90, 0],
+                    "top": [-90, 0, 0],
+                    "bottom": [90, 0, 0]
+                }
+            
+            views = []
+
+            for k in k_indexes:  # modificare locgica di selezione dei k oggetti di cui prendere le viste
+                item_views = []
+                for view in principal_views.values():
+                    if k in env.unpacked:
+                        Ht,_,obj_length,obj_width  = env.item_hm(k, view)
+                        item_views.append(Ht) 
+                    elif k in env.packed:  
+                        Ht = np.zeros((resolution,resolution))
+                        item_views.append(Ht)
+
+                item_views = np.array(item_views)
+                views.append(item_views)
+
+            views = np.array(views)                   
+
 
     print('End of main_module.py')
 
@@ -113,7 +142,7 @@ if __name__ == '__main__':
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/')
     parser.add_argument('--train', dest='train', action='store', default=False)
     parser.add_argument('--stage', dest='stage', action='store', default=1)
-    parser.add_argument('--K', dest='K', action='store', default=3)
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=2)
 
     args = parser.parse_args()
     main(args) 
