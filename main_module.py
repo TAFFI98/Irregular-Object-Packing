@@ -42,7 +42,7 @@ def main(args):
     env.draw_box( width=5)
 
     #-- Load items 
-    K = 3
+    K = args.k_obj
     item_numbers = np.random.randint(0, 100, size=K)
     item_ids = env.load_items(item_numbers)
 
@@ -67,7 +67,6 @@ def main(args):
     for i in range(K):
         item = item_ids[i]
         heightmap_box = env.box_heightmap()
-        print(heightmap_box.shape)
 
         # check if item is already packed
         unpacked = env.unpacked
@@ -98,8 +97,7 @@ def main(args):
             print('---------------------------------------')
             print('Stage 2')
             
-            k_obj = args.k_obj
-            k_indexes = bbox_order[:k_obj]
+            k_sort = args.k_sort
 
             principal_views = {
                     "front": [0, 0, 0],
@@ -112,22 +110,26 @@ def main(args):
             
             views = []
 
-            for k in k_indexes:  # modificare locgica di selezione dei k oggetti di cui prendere le viste
+            # if number of object is less than k, update k       
+            if len(env.unpacked) < k_sort:
+                k_sort = len(env.unpacked)
+
+            unpacked_volume, unpacked_ids = env.order_by_bbox_volume(env.unpacked)
+
+            # select k objects with the largest boubding box volume, compute thier heightmaps and concatenate them
+            
+            for i in range(k_sort):
                 item_views = []
                 for view in principal_views.values():
-                    if k in env.unpacked:
-                        Ht,_,obj_length,obj_width  = env.item_hm(k, view)
-                        item_views.append(Ht) 
-                    elif k in env.packed:  
-                        Ht = np.zeros((resolution,resolution))
-                        item_views.append(Ht)
-
+                    Ht,_,obj_length,obj_width  = env.item_hm(unpacked_ids[i], view)
+                    #env.visualize_object_heightmaps(id_, view, only_top = True )
+                    #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
+                    item_views.append(Ht)
                 item_views = np.array(item_views)
                 views.append(item_views)
+            views = np.array(views)
 
-            views = np.array(views)                   
-
-
+            
     print('End of main_module.py')
 
 
@@ -141,8 +143,9 @@ if __name__ == '__main__':
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/')
     parser.add_argument('--train', dest='train', action='store', default=False)
-    parser.add_argument('--stage', dest='stage', action='store', default=1)
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=2)
+    parser.add_argument('--stage', dest='stage', action='store', default=2)
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=5)
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=2)
 
     args = parser.parse_args()
     main(args) 
