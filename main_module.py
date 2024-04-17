@@ -63,6 +63,11 @@ def main(args):
 
     eps_height = 0.05 * box_size[2] # 5% of box height
 
+    # Initialize trainer
+    trainer = Trainer(method= 'stage_2', future_reward_discount=0.5,
+        load_snapshot_manager=False, load_snapshot_worker=False, file_snapshot_manager='/Project/snapshots/manager_network_1.pth',file_snapshot_worker='/Project/snapshots/worker_network_1.pth',
+        force_cpu='False',K=K)
+
     # loop over the loaded objects
     for i in range(K):
         item = item_ids[i]
@@ -120,14 +125,25 @@ def main(args):
             
             for i in range(k_sort):
                 item_views = []
+
                 for view in principal_views.values():
                     Ht,_,obj_length,obj_width  = env.item_hm(unpacked_ids[i], view)
                     #env.visualize_object_heightmaps(id_, view, only_top = True )
                     #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
                     item_views.append(Ht)
+
                 item_views = np.array(item_views)
                 views.append(item_views)
-            views = np.array(views)
+
+            views = np.array(views) # (K, 6, resolution, resolution)
+
+            # forward pass in the owprker network to get the scores for next object to be packed
+            input1_selection_network = np.expand_dims(views, axis=0)  #(batch, K, 6, resolution, resolution)
+            input2_selection_network = np.expand_dims(np.expand_dims(heightmap_box,axis=0), axis=0)  #(batch, 1, resolution, resolution)
+
+            chosen_item_index, score_values = trainer.forward_manager_network(input1_selection_network,input2_selection_network, env)
+
+            next_obj.append(chosen_item_index)
 
             
     print('End of main_module.py')
