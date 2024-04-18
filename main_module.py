@@ -59,14 +59,13 @@ def main(args):
     print('Packed ids before packing: ', env.packed)
     print('UnPacked ids before packing: ', env.unpacked)
     print('--------------------------------------')
-    prev_obj = 0
 
     eps_height = 0.05 * box_size[2] # 5% of box height
 
     # Initialize trainer
     trainer = Trainer(method= 'stage_2', future_reward_discount=0.5,
         load_snapshot_manager=False, load_snapshot_worker=False, file_snapshot_manager='/Project/snapshots/manager_network_1.pth',file_snapshot_worker='/Project/snapshots/worker_network_1.pth',
-        force_cpu='False',K=K)
+        force_cpu='False',K=args.k_sort)
 
     # loop over the loaded objects
     for i in range(K):
@@ -102,7 +101,7 @@ def main(args):
             print('---------------------------------------')
             print('Stage 2')
             
-            k_sort = args.k_sort
+            k_sort = args.k_sort 
 
             principal_views = {
                     "front": [0, 0, 0],
@@ -121,8 +120,7 @@ def main(args):
 
             unpacked_volume, unpacked_ids = env.order_by_bbox_volume(env.unpacked)
 
-            # select k objects with the largest boubding box volume, compute thier heightmaps and concatenate them
-            
+            # select k objects with the largest boubding box volume, compute thier heightmaps and concatenate them            
             for i in range(k_sort):
                 item_views = []
 
@@ -143,7 +141,7 @@ def main(args):
 
             chosen_item_index, score_values = trainer.forward_manager_network(input1_selection_network,input2_selection_network, env)
 
-            next_obj.append(chosen_item_index)
+            next_obj = chosen_item_index
 
             
     print('End of main_module.py')
@@ -152,7 +150,7 @@ def main(args):
 if __name__ == '__main__':
 
     # Parse arguments
-    parser = argparse.ArgumentParser(description='simple parser fro training')
+    parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
     parser.add_argument('--is_sim', dest='is_sim', action='store', default=True)
@@ -160,7 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/')
     parser.add_argument('--train', dest='train', action='store', default=False)
     parser.add_argument('--stage', dest='stage', action='store', default=2)
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=5)
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=3)
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2)
 
     args = parser.parse_args()
