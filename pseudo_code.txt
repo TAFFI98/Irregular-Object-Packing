@@ -30,9 +30,9 @@ For train_episode in range(5000)::​
 
                 If stage_2: ​
 
-      	     Order remaining objects accoding to BBox volume. ​
+      	            Order remaining objects accoding to BBox volume. ​
          
-          	     Select the K objects with highest BBox volume​
+          	        Select the K objects with highest BBox volume​
 
                     Compute Heightmaps of the K objects (6 views) and concatenate with Box Heightmap ​
 

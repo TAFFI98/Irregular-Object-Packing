@@ -18,7 +18,7 @@ from env import Env
 from logger import Logger
 import utils
 
-def main(args):
+def train(args):
 
     # Setup environment
     is_sim = args.is_sim        # per adesso is_sim lo lascio fisso a True, poi da definire a livello di logica quando si implementa il robot fisico
@@ -59,6 +59,8 @@ def main(args):
     print('Packed ids before packing: ', env.packed)
     print('UnPacked ids before packing: ', env.unpacked)
     print('--------------------------------------')
+
+    prev_obj = 0 #objective function score initiaization
 
     eps_height = 0.05 * box_size[2] # 5% of box height
 
@@ -143,9 +145,75 @@ def main(args):
 
             next_obj = chosen_item_index
 
-            
-    print('End of main_module.py')
+        # discretize r,p,y angles
+        roll = np.arange(0,360,90) # 90 degrees discretization
+        pitch = np.arange(0,360,90) 
+        yaw = np.arange(0,360,90) # 45 degrees discretization
 
+        roll_pitch_angles = [] # list of roll-pitch angles
+        rpy_angles = [] # list of roll-pitch-yaw angles
+
+        heightmaps_rpy = [] # list of heightmaps for each roll-pitch angle
+
+        for r in roll:
+            for p in pitch:
+
+                roll_pitch_angles.append(np.array([r,p]))
+
+                # for each r,p angle, compute the concatenated t,b heightmap for each y angle
+                for y in yaw:
+                    orient = [r,p,y]
+                    
+                    rpy_angles.append(np.array([r,p,y]))
+
+                    Ht, Hb, _, _ = env.item_hm(next_obj, orient)
+
+                    # add one dimension to concatenate Ht and Hb
+                    Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
+                    Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
+
+                    heightmaps_rpy.append(np.concatenate((Ht,Hb), axis=2)) 
+
+        heightmaps_rpy = np.asarray(heightmaps_rpy) # (128, res, res, 2)
+        rpy_angles = np.asarray(rpy_angles) # (128, 3)
+        roll_pitch_angles = np.asarray(roll_pitch_angles) # (16, 2)
+
+        # prepare inputs for forward pass in the worker network
+        input_placement_network_1 = np.expand_dims(heightmaps_rpy, axis=0)  # (batch, 128, res, res, 2)
+        input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) #(batch, res, res, 1)
+
+        # forward pass into worker to get Q-values for placement
+        Q_values = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2, rpy_angles)
+        print('Q values computed')
+
+        # plot Q-values
+        Qvisual = trainer.visualize_Q_values(Q_values)
+        cv2.namedWindow("Q Values", cv2.WINDOW_NORMAL)
+        cv2.imshow("Q Values", Qvisual)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+        # check placement validity
+        indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
+
+        print('Packing item with id: ', next_obj)\
+        
+        # Compute objective function  
+        v_items_packed, _ = env.order_by_item_volume(env.packed)
+        current_obj = env.Objective_function(env.packed, v_items_packed, NewBoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
+        if i>= 1:
+                ''' Compute reward '''
+                print('Previous Objective function is: ', prev_obj)
+                print('Backpropagating...')
+                yt = trainer.get_Qtarget_value(Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env)
+                trainer.backprop(Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1)
+
+        prev_obj = current_obj
+        heightmap_box = NewBoxHeightMap
+        trainer.save_snapshot()
+
+
+    print('End of main_module.py')
 
 if __name__ == '__main__':
 
@@ -157,9 +225,9 @@ if __name__ == '__main__':
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/')
     parser.add_argument('--train', dest='train', action='store', default=False)
-    parser.add_argument('--stage', dest='stage', action='store', default=2)
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=3)
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=2)
+    parser.add_argument('--stage', dest='stage', action='store', default=1)
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=3) # number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
 
     args = parser.parse_args()
-    main(args) 
+    train(args) 

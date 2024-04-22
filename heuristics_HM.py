@@ -73,6 +73,7 @@ if __name__ == '__main__':
     for i,item_ in enumerate(item_ids):
         stability = HM.pack(env,item_ )
         print(' Is the placement stable?', stability)
+        
     print('Objects packed')
     
 

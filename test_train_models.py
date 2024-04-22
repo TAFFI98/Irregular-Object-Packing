@@ -128,7 +128,6 @@ if __name__ == '__main__':
             if method == 'stage_1':
 
                 chosen_item_index = bbox_order[k]
-
             
             #-- Discretize roll, pitch and yaw
             print('----------------------------------------')
@@ -150,6 +149,7 @@ if __name__ == '__main__':
                         Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
                         item_heightmap = np.concatenate((Ht, Hb), axis=2)
                         item_heightmaps_RP.append(item_heightmap)  
+
             print('----------------------------------------')
             print('Computed Bottom and Top Heightmaps for alle the roll and pitch angles')
 
@@ -166,6 +166,7 @@ if __name__ == '__main__':
             input_placement_network_2 = np.expand_dims(input_placement_network_2, axis=0) #(batch, res, res, 1)
             print('----------------------------------------')
             print('Computed inputs for Worker Placement network')
+            
             #-- FORWARD WORKER NETWORK    
             Q_values = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2, roll_pitch_angles)
         
