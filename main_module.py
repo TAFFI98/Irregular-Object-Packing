@@ -151,39 +151,31 @@ def train(args):
         yaw = np.arange(0,360,90) # 45 degrees discretization
 
         roll_pitch_angles = [] # list of roll-pitch angles
-        rpy_angles = [] # list of roll-pitch-yaw angles
 
-        heightmaps_rpy = [] # list of heightmaps for each roll-pitch angle
+        heightmaps_rp = [] # list of heightmaps for each roll-pitch angle
 
         for r in roll:
             for p in pitch:
 
                 roll_pitch_angles.append(np.array([r,p]))
 
-                # for each r,p angle, compute the concatenated t,b heightmap for each y angle
-                for y in yaw:
-                    orient = [r,p,y]
-                    
-                    rpy_angles.append(np.array([r,p,y]))
+                orient = [r,p,0]
+                Ht, Hb, _, _ = env.item_hm(next_obj, orient)
+                
+                # add one dimension to concatenate Ht and Hb
+                Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
+                Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
+                heightmaps_rp.append(np.concatenate((Ht,Hb), axis=2)) 
 
-                    Ht, Hb, _, _ = env.item_hm(next_obj, orient)
-
-                    # add one dimension to concatenate Ht and Hb
-                    Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
-                    Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
-
-                    heightmaps_rpy.append(np.concatenate((Ht,Hb), axis=2)) 
-
-        heightmaps_rpy = np.asarray(heightmaps_rpy) # (128, res, res, 2)
-        rpy_angles = np.asarray(rpy_angles) # (128, 3)
+        heightmaps_rp = np.asarray(heightmaps_rp) # (16, res, res, 2)
         roll_pitch_angles = np.asarray(roll_pitch_angles) # (16, 2)
 
         # prepare inputs for forward pass in the worker network
-        input_placement_network_1 = np.expand_dims(heightmaps_rpy, axis=0)  # (batch, 128, res, res, 2)
+        input_placement_network_1 = np.expand_dims(heightmaps_rp, axis=0)  # (batch, 16, res, res, 2)
         input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) #(batch, res, res, 1)
 
         # forward pass into worker to get Q-values for placement
-        Q_values = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2, rpy_angles)
+        Q_values = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2, roll_pitch_angles)
         print('Q values computed')
 
         # plot Q-values
@@ -225,7 +217,7 @@ if __name__ == '__main__':
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/')
     parser.add_argument('--train', dest='train', action='store', default=False)
-    parser.add_argument('--stage', dest='stage', action='store', default=1)
+    parser.add_argument('--stage', dest='stage', action='store', default=2)
     parser.add_argument('--k_obj', dest='k_obj', action='store', default=3) # number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
 
