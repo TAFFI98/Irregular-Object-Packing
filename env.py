@@ -40,7 +40,7 @@ class Env(object):
 
         else:
             self.physicsClient = p.connect(p.DIRECT)
-        p.resetDebugVisualizerCamera(cameraDistance=0.7, cameraYaw=-90, cameraPitch=270, cameraTargetPosition=[length/2,width/2,height/2])
+
         p.setGravity(0,0,-10)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.loadURDF('plane.urdf')
@@ -664,7 +664,7 @@ class Env(object):
 if __name__ == '__main__':
 
  #-- Path with the URDF files
-    obj_folder_path = '/Project/Irregular-Object-Packing/objects/'
+    obj_folder_path = 'objects/'
     
     #-- PyBullet Environment setup 
     box_size=(0.4,0.4,0.3)
@@ -728,8 +728,6 @@ if __name__ == '__main__':
             ''' Compute reward '''
             Reward = env.Reward_function(prev_obj, current_obj)
         prev_obj = current_obj
-    
-
 
     env.visualize_box_heightmap()
     env.visualize_box_heightmap_3d()
@@ -742,10 +740,3 @@ if __name__ == '__main__':
 
     for i in range(500):
         p.stepSimulation()
-
-
-    
-
-
-
-

@@ -204,7 +204,6 @@ def train(args):
         heightmap_box = NewBoxHeightMap
         trainer.save_snapshot()
 
-
     print('End of main_module.py')
 
 if __name__ == '__main__':
@@ -217,9 +216,10 @@ if __name__ == '__main__':
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/')
     parser.add_argument('--train', dest='train', action='store', default=False)
-    parser.add_argument('--stage', dest='stage', action='store', default=2)
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=3) # number of objects to load
+    parser.add_argument('--stage', dest='stage', action='store', default=1)
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=5) # number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
 
     args = parser.parse_args()
     train(args) 
+
