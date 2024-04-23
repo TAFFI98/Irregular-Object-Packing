@@ -232,6 +232,8 @@ class placement_net(nn.Module):
         if self.use_cuda == True :
                     flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False).cuda(), input1.size(),align_corners=True)
                     rotated_hm = F.grid_sample(Variable(input1, requires_grad=False).cuda(), flow_grid_before, mode='nearest',align_corners=True) #[batch,2,res,res]
+                    rotated_hm = rotated_hm.cuda()
+                    input2 = input2.cuda()
         elif self.use_cuda == False:
                     flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False), input1.size(),align_corners=True)
                     rotated_hm = F.grid_sample(Variable(input1, requires_grad=False), flow_grid_before, mode='nearest',align_corners=True) #[batch,2,res,res]
