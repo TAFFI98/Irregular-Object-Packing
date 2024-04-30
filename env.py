@@ -660,7 +660,16 @@ class Env(object):
                                     max_z = max(max_z, z)
         return max_z
 
-
+    def is_box_full(heightmap, max_height):
+        '''
+        heightmap: numpy array of shape (resolution, resolution) representing the box heightmap
+        max_height: float representing the maximum height of the box
+        output: boolean
+        
+        Function to check if the box is full
+        '''
+        return np.all(heightmap == max_height)
+    
 if __name__ == '__main__':
 
  #-- Path with the URDF files
