@@ -21,7 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Trainer(object):
-    def __init__(self, method= 'stage_2', future_reward_discount=0.5,force_cpu ='False', file_snapshot_worker = 'snapshots/worker_network_1.pth', file_snapshot_manager='snapshots/manager_network_1.pth', load_snapshot_worker = False, load_snapshot_manager = False ,K=20, n_y=16):
+    def __init__(self, method= 'stage_2', future_reward_discount=0.5, force_cpu = False, file_snapshot_worker = 'snapshots/worker_network_1.pth', file_snapshot_manager='snapshots/manager_network_1.pth', load_snapshot_worker = False, load_snapshot_manager = False ,K=20, n_y=16):
         
         self.n_y = n_y # number of discrete yaw orientations
         self.method = method # stage_1 or stage_2
@@ -145,7 +145,7 @@ class Trainer(object):
         return yt
 
     # Compute labels and backpropagate
-    def backprop(self, Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1):
+    def backprop(self, Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1, stage = 'stage_1'):
             '''
             Q_values: predicted Q_values
             yt: target Q_value
@@ -160,10 +160,15 @@ class Trainer(object):
             # Compute labels to be able to pass gradients only through the selected action (pixel and orientation channel)
             label_Q = torch.zeros_like((Q_values))
             label_Q[:,indices_rp,indices_y,pixel_x,pixel_y] = yt * label_weight 
+
             # Compute loss and backward pass
+            if self.method == 'stage_2':
+                self.optimizer_manager.zero_grad()
+
             self.optimizer_worker.zero_grad()
-            self.optimizer_manager.zero_grad()
+
             loss_value = 0
+
             if self.use_cuda:
                     loss = self.criterion(Q_values.float().cuda(), label_Q.float().cuda(), requires_grad=False)
             else:
@@ -175,9 +180,10 @@ class Trainer(object):
             loss_value = loss_value/2
 
             print('----------------------------------------------------------------Training loss: %f' % (loss_value),'-------------------------------------------------------------------')
-            if self.epoch % 4 == 0:
+            if self.epoch % 4 == 0 and self.method == 'stage_2':
                 print('!!!!!!!!Backpropagating on manager network!!!!!!!!')
                 self.optimizer_manager.step()
+
             print('!!!!!!!!Backpropagating on worker network!!!!!!!!')
             self.optimizer_worker.step()
             self.epoch= self.epoch+1

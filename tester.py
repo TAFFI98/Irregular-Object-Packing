@@ -14,11 +14,10 @@ import cv2
 import numpy as np
 
 class Tester(object):
-    def __init__(self, force_cpu ='False',file_snapshot_worker = 'snapshots/worker_network_1.pth', file_snapshot_manager='snapshots/manager_network_1.pth', K=20, n_y=16):
+    def __init__(self, force_cpu =False, file_snapshot_worker = 'snapshots/worker_network_1.pth', file_snapshot_manager='snapshots/manager_network_1.pth', K=20, n_y=16):
         
         self.n_y = n_y # number of discrete yaw orientations
         self.K = K # total number of items to be packed
-
 
         # Check if CUDA can be used
         if torch.cuda.is_available() and not force_cpu:
