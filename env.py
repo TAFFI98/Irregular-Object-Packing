@@ -16,6 +16,8 @@ import os, csv
 class Env(object):
     def __init__(self, obj_dir, is_GUI = True, box_size = (0.4,0.4,0.3), resolution = 40):
         
+        self.p = p
+
         #-- Paths setup
         self.obj_dir = obj_dir                                              # directory with urdfs of objects
         self.csv_file = self.obj_dir + 'objects.csv'                        # path to the csv file with list of objects index,name, path

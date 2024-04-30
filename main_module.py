@@ -49,7 +49,7 @@ def train(args):
     volume_bbox, bbox_order = env.order_by_bbox_volume(item_ids)
 
     for i in range(500):
-        p.stepSimulation() 
+        env.p.stepSimulation() 
 
     print('----------------------------------------')
     print('K = ', K, 'Items Loaded')
@@ -157,7 +157,6 @@ def train(args):
         # discretize r,p,y angles
         roll = np.arange(0,360,90) # 90 degrees discretization
         pitch = np.arange(0,360,90) 
-        yaw = np.arange(0,360,90) # 45 degrees discretization
 
         roll_pitch_angles = [] # list of roll-pitch angles
         heightmaps_rp = [] # list of heightmaps for each roll-pitch angle
@@ -213,7 +212,6 @@ def train(args):
         trainer.save_snapshot()
 
     print('End of training')
-
 
 def test(args):
 
@@ -288,7 +286,6 @@ def test(args):
                 print('Compactness: ', compactness)
                 print('Stability: ', stability)
                 print('Number of packed items: ', len(env.packed))
-
 
                 print('Box is full' )
                 break
@@ -373,10 +370,7 @@ def test(args):
                 indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing = tester.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
                 average_stability.append(stability_of_packing)
                 print('Packing item with id: ', next_obj)
-                heightmap_box = NewBoxHeightMap
-
-                   
-
+                heightmap_box = NewBoxHeightMap                 
 
     print('Testing done')
 
@@ -397,4 +391,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     train(args) 
     #test(args)
+
+    n_ep = 10000
+
+    for ep in range(n_ep):
+
+        print('Episode: ', ep)
+        train(args)
 
