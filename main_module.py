@@ -69,6 +69,7 @@ def train(args):
 
         # volumes, sorted_ids = env.order_by_item_volume(item_ids)
         volume_bbox, bbox_order = env.order_by_bbox_volume(item_ids)
+        print('bbox_order: ', bbox_order)
 
         for i in range(500):
             env.p.stepSimulation() 
@@ -87,7 +88,7 @@ def train(args):
 
         # loop over the loaded objects
         for i in range(K):
-            item = item_ids[i]
+
             heightmap_box = env.box_heightmap()
 
             # check if item is already packed
@@ -223,9 +224,9 @@ def train(args):
 
         print('--------------------------------------')
         print('End of episode: ', ep)
-        print('Updated worker and manager snapshots:')
-        print('Manager snapshot: ', manager_snap)
-        print('Worker snapshot: ', worker_snap)
+        # print('Updated worker and manager snapshots:')
+        # print('Manager snapshot: ', manager_snap)
+        # print('Worker snapshot: ', worker_snap)
         print('--------------------------------------')
 
     print('End of training')
@@ -399,15 +400,15 @@ if __name__ == '__main__':
     # --------------- Setup options ---------------
     parser.add_argument('--is_sim', dest='is_sim', action='store', default=True)
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
-    parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/')
-    parser.add_argument('--train', dest='train', action='store', default=False)
-    parser.add_argument('--gui', dest='gui', action='store', default=False)
-    parser.add_argument('--stage', dest='stage', action='store', default=1)
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=5) # number of objects to load
+    parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/') # path to the folder containing the objects .csv file
+    parser.add_argument('--train', dest='train', action='store', default=False) # train or test (not used at the moment)
+    parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
+    parser.add_argument('--stage', dest='stage', action='store', default=1) # stage 1 or 2 for training
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=3) # number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
-    parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default='snapshots/manager_network_1.pth')
-    parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default='snapshots/worker_network_1.pth')
-    parser.add_argument('--episodes', dest='episodes', action='store', default=10000)
+    parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default='snapshots/manager_network_1.pth') # path to the manager network snapshot
+    parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default='snapshots/worker_network_1.pth') # path to the worker network snapshot
+    parser.add_argument('--episodes', dest='episodes', action='store', default=10000) # number of episodes
 
     args = parser.parse_args()
     train(args) 

@@ -85,6 +85,13 @@ class Trainer(object):
             if self.use_cuda:
                 self.manager_network = self.manager_network.cuda()
 
+        print('---------------------------------------------------')
+        print('Trainer initialized.')
+        print('Method: %s' % (self.method))
+        print('manager_network: ' , file_snapshot_manager)
+        print('worker_network: ' , file_snapshot_worker)
+        print('---------------------------------------------------')
+
     # Compute forward pass through manager network to select the object to be packed
     def forward_manager_network(self, input1_selection_network, input2_selection_network, env):
         '''
