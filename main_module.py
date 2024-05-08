@@ -64,7 +64,7 @@ def train(args):
 
         #-- Load items 
         K = args.k_obj
-        item_numbers = np.random.randint(0, 100, size=K)
+        item_numbers = np.random.sample(range(0, 100 + 1), K) 
         item_ids = env.load_items(item_numbers)
 
         # volumes, sorted_ids = env.order_by_item_volume(item_ids)
