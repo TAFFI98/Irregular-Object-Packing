@@ -64,7 +64,8 @@ def train(args):
 
         #-- Load items 
         K = args.k_obj
-        item_numbers = np.random.sample(range(0, 100 + 1), K) 
+        values = np.arange(start=0, stop=100+1, step=1)
+        item_numbers = np.random.choice(values, K, replace=False)
         item_ids = env.load_items(item_numbers)
 
         # volumes, sorted_ids = env.order_by_item_volume(item_ids)
@@ -402,9 +403,9 @@ if __name__ == '__main__':
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/') # path to the folder containing the objects .csv file
     parser.add_argument('--train', dest='train', action='store', default=False) # train or test (not used at the moment)
-    parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
+    parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--stage', dest='stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=3) # number of objects to load
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=5) # number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
     parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default='snapshots/manager_network_1.pth') # path to the manager network snapshot
     parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default='snapshots/worker_network_1.pth') # path to the worker network snapshot
