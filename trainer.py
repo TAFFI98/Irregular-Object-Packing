@@ -350,3 +350,7 @@ class Trainer(object):
         if self.method == 'stage_2':
             torch.save(self.manager_network.state_dict(), f'snapshots/manager_network_{self.epoch}.pth')
 
+            return f'snapshots/manager_network_{self.epoch}.pth', f'snapshots/worker_network_{self.epoch}.pth'
+
+        return f'snapshots/manager_network_{self.epoch}.pth', f''
+
