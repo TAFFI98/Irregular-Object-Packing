@@ -403,7 +403,7 @@ if __name__ == '__main__':
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
     parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/') # path to the folder containing the objects .csv file
     parser.add_argument('--train', dest='train', action='store', default=False) # train or test (not used at the moment)
-    parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
+    parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
     parser.add_argument('--stage', dest='stage', action='store', default=1) # stage 1 or 2 for training
     parser.add_argument('--k_obj', dest='k_obj', action='store', default=5) # number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
