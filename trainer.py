@@ -4,7 +4,20 @@ Created on  Apr 3 2024
 
 @author: Taffi
 """
+# ANSI escape sequences for colors
+black = "\033[1;30m"
+red = "\033[1;31m"
+green = "\033[1;32m"
+yellow = "\033[1;33m"
+blue = "\033[1;34m"
+purple = "\033[1;35m"
+cyan = "\033[1;36m"
+white = "\033[1;37m"
 
+# ANSI escape sequence for bold text
+bold = "\033[1m"
+# ANSI escape sequence to reset text formatting
+reset = "\033[0m"
 import os
 import time
 import numpy as np
@@ -21,7 +34,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Trainer(object):
-    def __init__(self, method= 'stage_2', future_reward_discount=0.5, force_cpu = False, file_snapshot_worker = 'snapshots/worker_network_1.pth', file_snapshot_manager='snapshots/manager_network_1.pth', load_snapshot_worker = False, load_snapshot_manager = False ,K=20, n_y=16):
+    def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot_worker = None, file_snapshot_manager = None, load_snapshot_worker = False, load_snapshot_manager = False ,K = 20, n_y = 16):
         
         self.n_y = n_y # number of discrete yaw orientations
         self.method = method # stage_1 or stage_2
@@ -33,22 +46,22 @@ class Trainer(object):
 
         # Check if CUDA can be used
         if torch.cuda.is_available() and not force_cpu:
-            print("CUDA detected. Running with GPU acceleration.")
+            print(f"{bold}CUDA detected. Running with GPU acceleration.{reset}")
             self.use_cuda = True
         elif force_cpu:
-            print("CUDA detected, but overriding with option '--cpu'. Running with only CPU.")
+            print(f"{bold}CUDA detected, but overriding with option '--cpu'. Running with only CPU.{reset}")
             self.use_cuda = False
         else:
-            print("CUDA is *NOT* detected. Running with only CPU.")
+            print(f"{bold}CUDA is *NOT* detected. Running with only CPU.{reset}")
             self.use_cuda = False
 
         # IN BOTH STAGES  TRAIN THE PLACEMENT NETWORK
         if self.method == 'stage_1' or self.method == 'stage_2':
             # INITIALIZE WORKER NETWORK
-            self.worker_network = placement_net(n_y = self.n_y, in_channel_unet=3, out_channel=1, use_cuda = self.use_cuda)
+            self.worker_network = placement_net(n_y = self.n_y, in_channel_unet = 3, out_channel = 1, use_cuda = self.use_cuda)
                 
             # Initialize Huber loss
-            self.criterion = torch.nn.SmoothL1Loss(reduce=False) # Huber loss
+            self.criterion = torch.nn.SmoothL1Loss(reduction=None) # Huber loss
             self.future_reward_discount = future_reward_discount
             if self.use_cuda:
                     self.criterion = self.criterion.cuda()
@@ -86,10 +99,10 @@ class Trainer(object):
                 self.manager_network = self.manager_network.cuda()
 
         print('---------------------------------------------------')
-        print('Trainer initialized.')
-        print('Method: %s' % (self.method))
-        print('manager_network: ' , file_snapshot_manager)
-        print('worker_network: ' , file_snapshot_worker)
+        print(f"{bold}TRAINER INITIALIZED.{reset}")
+        print('METHOD: %s' % (self.method))
+        print('Manager network snapshot: ' , file_snapshot_manager)
+        print('Worker network snapshot: ' , file_snapshot_worker)
         print('---------------------------------------------------')
 
     # Compute forward pass through manager network to select the object to be packed
@@ -110,7 +123,7 @@ class Trainer(object):
         return chosen_item_index, score_values
 
     # Compute forward pass through worker network to select the pose of the object to be packed
-    def forward_worker_network(self, input_placement_network_1, input_placement_network_2, roll_pitch_angles):
+    def forward_worker_network(self, input_placement_network_1, input_placement_network_2):
         '''
         input_placement_network_1: numpy array of shape (batch, n_rp, res, res, 2) 
         input_placement_network_2: numpy array of shape (batch, res, res, 1) - bounding box heightmap
@@ -119,7 +132,7 @@ class Trainer(object):
         Q_values: predicted Q_values
         '''
         #-- placement network
-        Q_values  = self.worker_network.forward(torch.tensor(input_placement_network_1, requires_grad=False),torch.tensor(input_placement_network_2, requires_grad=False),roll_pitch_angles)
+        Q_values  = self.worker_network.forward(torch.tensor(input_placement_network_1, requires_grad=False),torch.tensor(input_placement_network_2, requires_grad=False))
         print('----------------------------------------')
         print('Computed Worker network predictions. The pose of the object to be packed has been chosen.')
 

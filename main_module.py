@@ -1,3 +1,18 @@
+# ANSI escape sequences for colors
+black = "\033[1;30m"
+red = "\033[1;31m"
+green = "\033[1;32m"
+yellow = "\033[1;33m"
+blue = "\033[1;34m"
+purple = "\033[1;35m"
+cyan = "\033[1;36m"
+white = "\033[1;37m"
+
+# ANSI escape sequence for bold text
+bold = "\033[1m"
+# ANSI escape sequence to reset text formatting
+reset = "\033[0m"
+
 import time
 import os
 import random
@@ -7,119 +22,132 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy as sc
 import cv2    
-
 import pybullet_data
 import pybullet as p
 
 from trainer import Trainer
 from tester import Tester
 from env import Env
-
+import logging
 from logger import Logger
 import utils
 
 def train(args):
 
-    episodes = args.episodes
-
+    # Initialize snapshots
     manager_snap = args.manager_snapshot
     worker_snap = args.worker_snapshot
 
-    for ep in range(episodes):
-
-        # Initialize trainer
+    for ep in range(args.episodes):
+        # Load snapshots if existing
         if args.stage == 1:
             chosen_train_method = 'stage_1'
+            if args.load_snapshot_worker and worker_snap!= None:
+                load_snapshot_worker_ = True
+                load_snapshot_manager_ = False
+            else:
+                load_snapshot_worker_ = False
+                load_snapshot_manager_ = False
         elif args.stage == 2:
             chosen_train_method = 'stage_2'
-
-        print('---------------------------------------')
-        print('Training method: ', chosen_train_method)
-        print('---------------------------------------')  
-
-        trainer = Trainer(method= chosen_train_method, future_reward_discount=0.5, force_cpu=True,
-            load_snapshot_manager=False, load_snapshot_worker=False, 
-            file_snapshot_manager=manager_snap,file_snapshot_worker=worker_snap,
-            K=args.k_sort)
+            if args.load_snapshot_worker and worker_snap!= None:
+                load_snapshot_worker_ = True
+            else:
+                load_snapshot_worker_ = False
+            if args.load_snapshot_manager and manager_snap!= None:
+                load_snapshot_manager_ = True
+            else:   
+                load_snapshot_manager_ = False
 
         # Setup environment
-        is_sim = args.is_sim        # per adesso is_sim lo lascio fisso a True, poi da definire a livello di logica quando si implementa il robot fisico
-        obj_folder_path = args.obj_folder_path
-        stage = args.stage
+        #is_sim = args.is_sim        # per adesso is_sim lo lascio fisso a True, poi da definire a livello di logica quando si implementa il robot fisico
 
         # environment setup
         box_size = (0.4,0.4,0.3)
         resolution = 50
-        env = Env(obj_dir = obj_folder_path, is_GUI=args.gui, box_size=box_size, resolution = resolution)
+        env = Env(obj_dir = args.obj_folder_path, is_GUI = args.gui, box_size=box_size, resolution = resolution)
         print('----------------------------------------')
-        print('Setup of PyBullet environment: \nBox size: ',box_size, '\nResolution: ',resolution)
-
-        # Generate csv file with objects 
-        tot_num_objects = env.generate_urdf_csv()
         print('----------------------------------------')
-        print('Generating CSV with objects')
+        print(f"{bold}{green}EPISODE: ", ep, " out of ", args.episodes,f"{reset}")        
+        print('----------------------------------------')
+        print('----------------------------------------')
+        print('Set up of PyBullet Simulation environment: \nBox size: ',box_size, '\nResolution: ',resolution)
 
+        # Generate csv file with objects
+        print('----------------------------------------') 
+        _ = env.generate_urdf_csv()
+        print('----------------------------------------')
+        print('Generating CSV with ', args.k_obj, ' objects')
         #-- Draw Box
         env.draw_box(width=5)
 
         #-- Load items 
-        K = args.k_obj
         values = np.arange(start=0, stop=100+1, step=1)
-        item_numbers = np.random.choice(values, K, replace=False)
+        item_numbers = np.array([10])#np.random.choice(values, args.k_obj, replace=False)
         item_ids = env.load_items(item_numbers)
 
         # volumes, sorted_ids = env.order_by_item_volume(item_ids)
-        volume_bbox, bbox_order = env.order_by_bbox_volume(item_ids)
-        print('bbox_order: ', bbox_order)
-
+        _, bbox_order = env.order_by_bbox_volume(item_ids)
         for i in range(500):
             env.p.stepSimulation() 
 
         print('----------------------------------------')
-        print('K = ', K, 'Items Loaded')
+        print(f"{bold}{purple}K = ", args.k_obj, 'Items Loaded', f"{reset}")
         print('--------------------------------------')
+        print('Order of objects ids in simulation according to decreasing bounding box volume: ', bbox_order)
         print('Loaded ids before packing: ', env.loaded_ids)
         print('Packed ids before packing: ', env.packed)
         print('UnPacked ids before packing: ', env.unpacked)
         print('--------------------------------------')
 
         prev_obj = 0 #objective function score initiaization
-
         eps_height = 0.05 * box_size[2] # 5% of box height
 
+        # Initialize trainer
+        trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+            load_snapshot_manager = load_snapshot_manager_, load_snapshot_worker = load_snapshot_worker_, 
+            file_snapshot_manager = manager_snap, file_snapshot_worker = worker_snap,
+            K=args.k_sort)
+        
         # loop over the loaded objects
-        for i in range(K):
+        for i in range(args.k_obj):
 
             heightmap_box = env.box_heightmap()
+            print(' --- Computed box Heightmap --- ')
+            #env.visualize_box_heightmap()
+            #env.visualize_box_heightmap_3d()
 
-            # check if item is already packed
+            print(' --- Checking if there are still items to be packed --- ')          
             unpacked = env.unpacked
-
-            if len(unpacked) == 0: 
+            if len(unpacked) == 0:
+                print(f"{bold}{red}NO MORE ITEMS TO PACK --> END OF EPISODE{reset}") 
                 break
+            else:
+                print(f"{bold}There are still ", len(unpacked), f" items to be packed.{reset}")
 
-            # check if item is packable by maximum height
+            print(' --- Checking if next item is packable by maximum height --- ')          
             max_Heightmap_box = np.max(heightmap_box)
             is_box_full = max_Heightmap_box > box_size[2] - eps_height
-            
             if  is_box_full: 
+                print(f"{bold}{red}BOX IS FULL --> END OF EPISODE{reset}")
                 break
+            else:
+                print(f"{bold}Max box height not reached yet.{reset}")
+
             
             # selection strategy according to the chosen stage
-
-            if stage == 1:
-
+            if args.stage == 1:
                 # pack largest object first
                 print('---------------------------------------')
-                print('Stage 1')
-                
+                print(f"{bold}{green}Stage 1: Object selection according to largest bounding box volume{reset}")
                 next_obj = bbox_order[i]
+                print(f"{bold}{green}Selected object id: ", next_obj, f"{reset}")
 
-            elif stage == 2:
+            elif args.stage == 2:
 
-                # select k objects with the largest boubding box volume
+                # select k objects with the largest bounding box volume
                 print('---------------------------------------')
-                print('Stage 2')
+                print(f"{bold} Stage 2: Object selection according to Manager Network Selection{reset}")
                 
                 k_sort = args.k_sort 
 
@@ -166,18 +194,18 @@ def train(args):
             # discretize r,p,y angles
             roll = np.arange(0,360,90) # 90 degrees discretization
             pitch = np.arange(0,360,90) 
-
             roll_pitch_angles = [] # list of roll-pitch angles
-            heightmaps_rp = [] # list of heightmaps for each roll-pitch angle
+            heightmaps_rp = []     # list of heightmaps for each roll-pitch angle
 
             for r in roll:
                 for p in pitch:
 
                     roll_pitch_angles.append(np.array([r,p]))
-
                     orient = [r,p,0]
+                    print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
                     Ht, Hb, _, _ = env.item_hm(next_obj, orient)
-                    
+                    env.visualize_object_heightmaps(next_obj, orient, only_top = False)
+                    #env.visualize_object_heightmaps_3d(next_obj, orient, only_top = False)
                     # add one dimension to concatenate Ht and Hb
                     Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
                     Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
@@ -187,11 +215,11 @@ def train(args):
             roll_pitch_angles = np.asarray(roll_pitch_angles) # (16, 2)
 
             # prepare inputs for forward pass in the worker network
-            input_placement_network_1 = np.expand_dims(heightmaps_rp, axis=0)  # (batch, 16, res, res, 2)
-            input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) #(batch, res, res, 1)
+            input_placement_network_1 = np.expand_dims(heightmaps_rp, axis=0)                          # (batch, 16, res, res, 2) -- object heightmaps at different roll-pitch angles
+            input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) # (batch, res, res, 1)     -- box heightmap
 
             # forward pass into worker to get Q-values for placement
-            Q_values = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2, roll_pitch_angles)
+            Q_values = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2)
             print('Q values computed')
 
             # plot Q-values
@@ -235,14 +263,12 @@ def train(args):
 def test(args):
 
     # Setup environment
-    is_sim = args.is_sim        # per adesso is_sim lo lascio fisso a True, poi da definire a livello di logica quando si implementa il robot fisico
-    obj_folder_path = args.obj_folder_path
-    stage = args.stage
+    #is_sim = args.is_sim        # per adesso is_sim lo lascio fisso a True, poi da definire a livello di logica quando si implementa il robot fisico
 
     # environment setup
     box_size=(0.4,0.4,0.3)
     resolution = 50
-    env = Env(obj_dir = obj_folder_path, is_GUI=True, box_size=box_size, resolution = resolution)
+    env = Env(obj_dir = args.obj_folder_path, is_GUI=True, box_size=box_size, resolution = resolution)
     print('----------------------------------------')
     print('Setup of PyBullet environment: \nBox size: ',box_size, '\nResolution: ',resolution)
 
@@ -255,7 +281,7 @@ def test(args):
     env.draw_box( width=5)
 
     #-- Load items 
-    K = args.k_obj
+   
     item_numbers = np.random.randint(0, 100, size=K)
     item_ids = env.load_items(item_numbers)
 
@@ -269,7 +295,7 @@ def test(args):
     print('Tester initialized')
 
     # main for loop for testing
-    for i in range(K):
+    for i in range(args.k_obj):
 
         heightmap_box = env.box_heightmap()
         eps_height = 0.05 * box_size[2] # 5% of box height
@@ -399,18 +425,23 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
-    parser.add_argument('--is_sim', dest='is_sim', action='store', default=True)
+    #parser.add_argument('--is_sim', dest='is_sim', action='store', default=True)
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
-    parser.add_argument('--obj_folder_path', dest='obj_folder_path', action='store', default='objects/') # path to the folder containing the objects .csv file
-    parser.add_argument('--train', dest='train', action='store', default=False) # train or test (not used at the moment)
+    parser.add_argument('--obj_folder_path',  action='store', default='objects/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
-    parser.add_argument('--stage', dest='stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=5) # number of objects to load
+    parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
+    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=1) # number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
-    parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default='snapshots/manager_network_1.pth') # path to the manager network snapshot
-    parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default='snapshots/worker_network_1.pth') # path to the worker network snapshot
-    parser.add_argument('--episodes', dest='episodes', action='store', default=10000) # number of episodes
+    parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=None) # path to the manager network snapshot
+    parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=None) # path to the worker network snapshot
+    parser.add_argument('--episodes', action='store', default=10000) # number of episodes
+    parser.add_argument('--load_snapshot_manager', dest='load_snapshot_manager', action='store', default='True') # Load snapshot of the manager network
+    parser.add_argument('--load_snapshot_worker', dest='load_snapshot_worker', action='store', default='True') # Load snapshot of the worker network
 
     args = parser.parse_args()
+    
+    # --------------- Start Train ---------------
     train(args) 
+     # --------------- Start Test ---------------   
     #test(args)

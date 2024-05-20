@@ -36,7 +36,8 @@ class Env(object):
         #-- Setup of PyBullet simulation
         if p.isConnected():
             p.disconnect()
-            
+        
+        
         if is_GUI:
             self.physicsClient = p.connect(p.GUI)
 
@@ -148,7 +149,7 @@ class Env(object):
         
         Function to visualize the object heightmaps (bottom and top) in 2D
         '''
-        Ht, Hb = self.item_hm(item_id, orient)
+        Ht,Hb, obj_length, obj_width = self.item_hm(item_id, orient)
         
         # Display the top-view and bottom-view heightmaps
         if only_top == False:
@@ -181,7 +182,7 @@ class Env(object):
         
         Function to visualize the object heightmaps (bottom and top) in 3D
         '''
-        Ht, Hb = self.item_hm(item_id, orient)
+        Ht,Hb, obj_length, obj_width = self.item_hm(item_id, orient)
 
         # Create 3D grid
         X, Y = np.meshgrid(np.linspace(0, self.box_size[0], Ht.shape[1]),
@@ -274,12 +275,17 @@ class Env(object):
         AABB = p.getAABB(item_id)                                      
         obj_length = AABB[1][0] - AABB[0][0]
         obj_width = AABB[1][1] - AABB[0][1]
-        # Computation of a grid of points within the bounding box of the item. 
-        sep_x = (AABB[1][0] - AABB[0][0])/self.resolution
-        sep_y = (AABB[1][1] - AABB[0][1])/self.resolution
-        xpos = np.arange(AABB[0][0]+sep_x/2,AABB[1][0],sep_x)
-        ypos = np.arange(AABB[0][1]+sep_y/2,AABB[1][1],sep_y)
-        xscan, yscan = np.meshgrid(xpos,ypos)
+         # Computation of a grid of points within the specified box size
+        sep = self.box_size[0] / self.resolution
+        xpos = np.arange(sep / 2, self.box_size[0] + sep / 2, sep)
+        ypos = np.arange(sep / 2, self.box_size[1] + sep / 2, sep)
+        xscan, yscan = np.meshgrid(xpos, ypos)
+        
+        # Adjust the position of the grid to center the object in the 2D image
+        x_offset = (self.box_size[0] - obj_length) / 2
+        y_offset = (self.box_size[1] - obj_width) / 2
+        xscan += AABB[0][0] - x_offset
+        yscan += AABB[0][1] - y_offset
         
 
         # Ray casting from the top to the bottom and from the bottom to the top of the item's bounding box 
@@ -297,13 +303,16 @@ class Env(object):
         Hb = RayScanDT*(AABB[1][2]-AABB[0][2])
         # Replace infinity values in Hb with the maximum height of the bounding box
         max_height = AABB[1][2] - AABB[0][2]
-        Hb[Hb == np.inf] = max_height
+        Hb[Hb == np.inf] = 0
         Ht = Ht.astype('float64').reshape(len(ypos),len(xpos)).T
         Hb = Hb.astype('float64').reshape(len(ypos),len(xpos)).T
         
         # Resets the initial orientation for the item
         p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
         return Ht,Hb, obj_length, obj_width
+    
+
+
     
     def order_by_bbox_volume(self,items_ids):
         '''
@@ -568,7 +577,7 @@ class Env(object):
                         writer.writerow({'Index': index, 'Object Name': object_name, 'URDF Path': urdf_path})
                         index += 1
             tot_num_objects = index
-            print('Total number of objects: ', tot_num_objects )
+            print('Total number of available objects: ', tot_num_objects )
 
         return tot_num_objects
     
@@ -646,7 +655,7 @@ class Env(object):
 
         s_range = range(-Hb.shape[0]//2, Hb.shape[0]//2)
         t_range = range(-Hb.shape[1]//2, Hb.shape[1]//2)
-        max_z = float('-inf')
+        max_z = 0
         ss_range = range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)
         tt_range = range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)
 
