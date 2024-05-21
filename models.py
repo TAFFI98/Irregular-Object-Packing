@@ -176,7 +176,7 @@ class placement_net(nn.Module):
         # Without an activation function, the output values of the heatmap produced by the final convolutional 
         # layer can assume any real number, ranging from negative to positive infinity.
 
-    def forward(self, input1, input2):
+    def forward(self, env, roll_pitch_angles, input1, input2):
         batch_size = input1.size(0)
         n_rp = input1.size(1)
 
@@ -188,9 +188,11 @@ class placement_net(nn.Module):
         for j in range(n_rp):
             input1_rp = input1[:,j,:,:,:] #[batch,res,res,2]
             score_matrices = []           #[batch,res,res,3,ny]
-            for i in range(self.n_y):
+            for i in range(self.n_y): 
                 angle =  i * (360 / self.n_y)
-                unet_input = self.rotate_tensor_and_append_bbox(input1_rp, angle, input2, batch_size, i) #[batch,3,res,res]
+                orient = list(roll_pitch_angles[j]) + [angle]
+                #print('Worker network evaluating orientation: ', orient)
+                unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orient, input2, batch_size, i, env) #[batch,3,res,res]
                 unet_output = self.unet_forward(unet_input)
                 score_matrices.append(unet_output)# list of score matrices [batch,res,res]-- one for each yaw
             
@@ -228,9 +230,10 @@ class placement_net(nn.Module):
         x = self.layer18(x)
         return torch.squeeze(x, dim=1) #[batch,res,res]
     
-    def rotate_tensor_and_append_bbox(self, input1, angle, input2, batch_size,i ):
+    def rotate_tensor_and_append_bbox(self, input1, orient, input2, batch_size, i , env):
  
         # Generate rotation matrix
+        angle = orient[2] 
         rotation_matrix = np.asarray([[even_odd_sign(i)* np.cos(angle),even_odd_sign(i)* -np.sin(angle), 0],[even_odd_sign(i)*np.sin(angle), even_odd_sign(i)*np.cos(angle), 0]])
         rotation_matrix.shape = (2,3,1)
         rotation_matrix = torch.from_numpy(rotation_matrix).permute(2,0,1).float() #[1,2,3]
@@ -247,31 +250,14 @@ class placement_net(nn.Module):
                     flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False), input1.size(),align_corners=True)
                     rotated_hm = F.grid_sample(Variable(input1, requires_grad=False), flow_grid_before, mode='nearest',align_corners=True) #[batch,2,res,res]
             
-        #Uncomment to Show the rotated heightmaps
-        fig, axs = plt.subplots(1, 5, figsize=(22, 4))
-        axs[0].imshow(input1[0, 0, :, :].detach().cpu().numpy())
-        axs[0].set_title(f"Original Top Heightmap")
-        axs[0].axis('off')
-        axs[1].imshow(input1[0, 1, :, :].detach().cpu().numpy())
-        axs[1].set_title(f"Original Bottom Heightmap")
-        axs[1].axis('off')           
-        axs[2].imshow(rotated_hm[0, 0, :, :].detach().cpu().numpy())
-        axs[2].set_title(f"Rotated Top Heightmap (angle={angle}°)")
-        axs[2].axis('off')
-        axs[3].imshow(rotated_hm[0, 1, :, :].detach().cpu().numpy())
-        axs[3].set_title(f"Rotated Bottom Heightmap (angle={angle}°)")
-        axs[3].axis('off')
-        axs[4].imshow(input2[0, 0, :, :].detach().cpu().numpy())
-        axs[4].set_title(f"Box Heightmap")
-        axs[4].axis('off')
-        plt.show()
-
-
+        # -----> Uncomment to Show the rotated heightmaps
+        # env.visualize_object_heightmaps(input1[0,0,:,:].detach().cpu().numpy(), input1[0,1,:,:].detach().cpu().numpy(), [orient[0],orient[1],0], only_top = False)
+        # env.visualize_object_heightmaps(rotated_hm[0,0,:,:].detach().cpu().numpy(), rotated_hm[0,1,:,:].detach().cpu().numpy(), orient, only_top = False)
+        # env.visualize_object_heightmaps(input2[0, 0, :, :].detach().cpu().numpy(), None, [0,0,0], only_top = True)
         
         # Concatenate the rotated heightmap with the box heightmap
         input_unet = torch.cat([rotated_hm,input2], dim=1)
 
-        
         return input_unet
 
 class Downsample(nn.Module):

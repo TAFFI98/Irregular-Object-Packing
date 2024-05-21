@@ -77,13 +77,15 @@ def train(args):
         print('----------------------------------------') 
         _ = env.generate_urdf_csv()
         print('----------------------------------------')
-        print('Generating CSV with ', args.k_obj, ' objects')
+        print(f'{bold}Generating CSV with ', args.k_obj, f' objects:{reset}')
         #-- Draw Box
         env.draw_box(width=5)
 
         #-- Load items 
         values = np.arange(start=0, stop=100+1, step=1)
-        item_numbers = np.array([10])#np.random.choice(values, args.k_obj, replace=False)
+        #item_numbers = np.array([10]) #to debug
+        item_numbers =  np.random.choice(values, args.k_obj, replace=False)
+        
         item_ids = env.load_items(item_numbers)
 
         # volumes, sorted_ids = env.order_by_item_volume(item_ids)
@@ -174,8 +176,8 @@ def train(args):
 
                     for view in principal_views.values():
                         Ht,_,obj_length,obj_width  = env.item_hm(unpacked_ids[i], view)
-                        #env.visualize_object_heightmaps(id_, view, only_top = True )
-                        #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
+                        #env.visualize_object_heightmaps(Ht,_ only_top = True )
+                        #env.visualize_object_heightmaps_3d(Ht,_, only_top = True )
                         item_views.append(Ht)
 
                     item_views = np.array(item_views)
@@ -202,10 +204,15 @@ def train(args):
 
                     roll_pitch_angles.append(np.array([r,p]))
                     orient = [r,p,0]
-                    print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
+
+                    #print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
+                    
                     Ht, Hb, _, _ = env.item_hm(next_obj, orient)
-                    env.visualize_object_heightmaps(next_obj, orient, only_top = False)
-                    #env.visualize_object_heightmaps_3d(next_obj, orient, only_top = False)
+                    
+                    # --- Uncomment to visulize Heightmaps
+                    #env.visualize_object_heightmaps(Ht, Hb, orient, only_top = False)
+                    #env.visualize_object_heightmaps_3d(Ht, Hb, orient, only_top = False)
+                    
                     # add one dimension to concatenate Ht and Hb
                     Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
                     Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
@@ -219,21 +226,17 @@ def train(args):
             input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) # (batch, res, res, 1)     -- box heightmap
 
             # forward pass into worker to get Q-values for placement
-            Q_values = trainer.forward_worker_network(input_placement_network_1, input_placement_network_2)
-            print('Q values computed')
+            Q_values = trainer.forward_worker_network(env, roll_pitch_angles, input_placement_network_1, input_placement_network_2)
+            print(f"{bold}{green}Both in Stage 1 and 2: Computing packing pose of the selected object with placement network{reset}")
+            print(f"{bold}{green}Q values computed for every candidate pose.{reset}")
 
-            # plot Q-values
-            # Qvisual = trainer.visualize_Q_values(Q_values)
-            # cv2.namedWindow("Q Values", cv2.WINDOW_NORMAL)
-            # cv2.imshow("Q Values", Qvisual)
-            # cv2.waitKey(0)
-            # cv2.destroyAllWindows()
+            # Uncomment to plot Q-values
+            # Qvisual = trainer.visualize_Q_values(Q_values, show=True)
+
 
             # check placement validity
             indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
 
-            print('Packing item with id: ', next_obj)\
-            
             # Compute objective function  
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function(env.packed, v_items_packed, NewBoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
@@ -431,7 +434,7 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=1) # number of objects to load
+    parser.add_argument('--k_obj', dest='k_obj', action='store', default=10) # number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
     parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=None) # path to the manager network snapshot
     parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=None) # path to the worker network snapshot

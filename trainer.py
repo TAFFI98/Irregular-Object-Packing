@@ -8,12 +8,13 @@ Created on  Apr 3 2024
 black = "\033[1;30m"
 red = "\033[1;31m"
 green = "\033[1;32m"
-yellow = "\033[1;33m"
+green_light = "\033[0;32m"
+yellow = "\033[0;33m"
 blue = "\033[1;34m"
 purple = "\033[1;35m"
-cyan = "\033[1;36m"
+cyan = "\033[0;36m"
 white = "\033[1;37m"
-
+red_light = "\033[0;31m"
 # ANSI escape sequence for bold text
 bold = "\033[1m"
 # ANSI escape sequence to reset text formatting
@@ -100,7 +101,7 @@ class Trainer(object):
 
         print('---------------------------------------------------')
         print(f"{bold}TRAINER INITIALIZED.{reset}")
-        print('METHOD: %s' % (self.method))
+        print(f"{bold}METHOD: %s" % (self.method),f"{reset}")
         print('Manager network snapshot: ' , file_snapshot_manager)
         print('Worker network snapshot: ' , file_snapshot_worker)
         print('---------------------------------------------------')
@@ -123,18 +124,16 @@ class Trainer(object):
         return chosen_item_index, score_values
 
     # Compute forward pass through worker network to select the pose of the object to be packed
-    def forward_worker_network(self, input_placement_network_1, input_placement_network_2):
+    def forward_worker_network(self, env, roll_pitch_angles, input_placement_network_1, input_placement_network_2):
         '''
         input_placement_network_1: numpy array of shape (batch, n_rp, res, res, 2) 
         input_placement_network_2: numpy array of shape (batch, res, res, 1) - bounding box heightmap
-        roll_pitch_angles: numpy array of shape (n_rp, 2) - roll and pitch angles 
+        env: environment object
         output:
         Q_values: predicted Q_values
         '''
         #-- placement network
-        Q_values  = self.worker_network.forward(torch.tensor(input_placement_network_1, requires_grad=False),torch.tensor(input_placement_network_2, requires_grad=False))
-        print('----------------------------------------')
-        print('Computed Worker network predictions. The pose of the object to be packed has been chosen.')
+        Q_values  = self.worker_network.forward(env, roll_pitch_angles, torch.tensor(input_placement_network_1, requires_grad=False),torch.tensor(input_placement_network_2, requires_grad=False))
 
         return  Q_values 
     
@@ -190,7 +189,7 @@ class Trainer(object):
             loss_value = 0
 
             if self.use_cuda:
-                    loss = self.criterion(Q_values.float().cuda(), label_Q.float().cuda(), requires_grad=False)
+                    loss = self.criterion(Q_values.float().cuda(), label_Q.float().cuda())
             else:
                     loss = self.criterion(Q_values.float(), label_Q.float())
             
@@ -209,7 +208,7 @@ class Trainer(object):
             self.epoch= self.epoch+1
 
     # Visualize the predictions of the worker network: Q_values
-    def visualize_Q_values(self, Q_values):
+    def visualize_Q_values(self, Q_values, show = True):
         '''
         Q_values: numpy array of shape (1, n_rp, n_y, resolution, resolution)
         output: visualization of Q_values using colormaps
@@ -240,6 +239,11 @@ class Trainer(object):
                 # Adjust the placement of Q_values_vis on the canvas to account for the borders
                 canvas[i*(resolution+2*border_size):i*(resolution+2*border_size)+(resolution+2*border_size), 
                         j*(resolution+2*border_size):j*(resolution+2*border_size)+(resolution+2*border_size), :] = Q_values_vis
+        if show == True:
+            cv2.namedWindow("Q Values", cv2.WINDOW_NORMAL)
+            cv2.imshow("Q Values", canvas)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
 
         return canvas
         
@@ -247,7 +251,7 @@ class Trainer(object):
     def check_placement_validity(self, env, Q_values, roll_pitch_angles, BoxHeightMap, chosen_item_index):
         '''
         env: environment object
-        Q_values: predicted Q_values
+        Q_values: predicted Q_values #[batch, n_y, n_rp, res, res]
         roll_pitch_angles: numpy array of shape (n_rp, 2) - roll and pitch angles
         BoxHeightMap: heightmap of the box
         chosen_item_index: index of the object to be packed
@@ -282,18 +286,24 @@ class Trainer(object):
             p = float(roll_pitch_angles[indices_rp,1])
             y = float(indices_y * (360 / self.n_y))
 
-
-            print('----------------------------------------')
-            print('Packing chosen item with predicted pose...')
             # Pack chosen item with predicted pose
             target_euler = [r,p,y]
-            # Compute z coordinate
-            _,Hb_selected_obj,obj_length,obj_width = env.item_hm(chosen_item_index, target_euler )
-            z = env.get_z(BoxHeightMap,Hb_selected_obj,pixel_x, pixel_y,obj_length,obj_width)
+            
+            # Compute z coordinate,
+            _,Hb_selected_obj, obj_length, obj_width = env.item_hm(chosen_item_index, target_euler)
+
+            # Uncomment to visualize the heightmap of the predicted pose of the object and the difference between the heightmap of the box and the object
+            
+            #env.visualize_object_heightmaps(Hb_selected_obj, None, target_euler, only_top = True)
+            #env.visualize_object_heightmaps_3d(BoxHeightMap-Hb_selected_obj, None, target_euler, only_top = True)
+            
+            z = env.get_z(BoxHeightMap, Hb_selected_obj, pixel_x, pixel_y, obj_length, obj_width)
             target_pos = [pixel_x * env.box_size[0]/env.resolution,pixel_y * env.box_size[1]/env.resolution, z] # m
             transform = np.empty(6,)
             transform[0:3] = target_euler
             transform[3:6] = target_pos
+            print('----------------------------------------')
+            print(f'{yellow}Check packing validity for chosen item with index', chosen_item_index, 'with candidate predicted: \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
             BoxHeightMap, stability_of_packing, old_pos, old_quater = env.pack_item(chosen_item_index , transform)
             # Check collision with box margins 
             BBOX_object = env.compute_object_bbox(chosen_item_index)
@@ -303,7 +313,7 @@ class Trainer(object):
 
             # Use the collision result
             if collision:
-                print("Collision detected!")
+                print(f'{red_light}Collision detected!{reset}')
                 # Place the object back to its original position since this predicted pose would not be valid
                 env.unpack_item(chosen_item_index, old_pos, old_quater)
                 # Remove the bounding box of the object
@@ -311,24 +321,22 @@ class Trainer(object):
                 env.removeAABB(bbox_obj_line_ids)
                 continue
             else:
-                print("No collision.")
+                print(f'{green_light}No collision detected.{reset}')
                 # Check if the height of the box is exceeded
                 height_exceeded = self.check_height_exceeded(box_heightmap = BoxHeightMap, box_height = box_height)
                 if height_exceeded:
-                    print("Box height exceeded!")
+                    print(f'{red_light}Box height exceeded!{reset}')
                     # place the object back to its original position since this predicted pose would not be valid
                     env.unpack_item(chosen_item_index, old_pos, old_quater)
                     # Restore the position of the box since the invalid packing could have modified it
                     env.removeAABB(bbox_obj_line_ids)
                     continue
                 else:
-                    print("Box height not exceeded.")
+                    print(f'{green_light}Box height not exceeded.{reset}')
                     print('--------------------------------------')
-                    print('Packed chosen item ')
-                    print('Is the placement stable?', stability_of_packing)
-                    print('Loaded ids after packing: ', env.loaded_ids)
-                    print('Packed ids after packing: ', env.packed)
-                    print('UnPacked ids after packing: ', env.unpacked)
+                    print(f'{green}Packed chosen item!! {reset}')
+                    print(f'{green}with pose: \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')                   
+                    print(f'{red_light}Is the placement stable?', stability_of_packing,f'{reset}')
                     print('--------------------------------------')
                     env.removeAABB(bbox_obj_line_ids)
                     return indices_rp, indices_y, pixel_x, pixel_y, BoxHeightMap, stability_of_packing

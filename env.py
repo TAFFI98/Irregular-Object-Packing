@@ -4,6 +4,21 @@ Created on  Apr 3 2024
 
 @author: Taffi
 """
+# ANSI escape sequences for colors
+black = "\033[1;30m"
+red = "\033[1;31m"
+green = "\033[1;32m"
+green_light = "\033[0;32m"
+yellow = "\033[0;33m"
+blue = "\033[1;34m"
+purple = "\033[1;35m"
+cyan = "\033[0;36m"
+white = "\033[1;37m"
+red_light = "\033[0;31m"
+# ANSI escape sequence for bold text
+bold = "\033[1m"
+# ANSI escape sequence to reset text formatting
+reset = "\033[0m"
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -65,6 +80,10 @@ class Env(object):
         self.packed = []
         #-- Initialize ids of the objects not packed
         self.unpacked = []       
+
+        self.stability_treshold_position = 0.02
+        self.stability_treshold_orientation = np.pi*2/3
+
         
     def create_box(self, size, pos):
         '''
@@ -109,7 +128,7 @@ class Env(object):
         for count, urdf_data in enumerate(urdf_info):
             if count in item_ids:
                 urdf_path = urdf_data['URDF Path']
-                print(urdf_path)
+                print('-' ,urdf_path.split('/')[-2] , '(', urdf_path.split('/')[-3], ')')
                 loaded_id = p.loadURDF(urdf_path, [(count//5)/4+2.2, (count%5)/4+0.2, 0.1], flags=flags)
                 self.loaded_ids.append(loaded_id)
                 self.unpacked.append(loaded_id)
@@ -141,7 +160,7 @@ class Env(object):
         HeightMap = Height.reshape(self.resolution,self.resolution).T
         return HeightMap  
     
-    def visualize_object_heightmaps(self, item_id, orient, only_top = False):
+    def visualize_object_heightmaps(self, Ht, Hb, orient, only_top = False):
         '''
         item_id: integer
         orient: list of 3 elements [roll, pitch, yaw]
@@ -149,32 +168,31 @@ class Env(object):
         
         Function to visualize the object heightmaps (bottom and top) in 2D
         '''
-        Ht,Hb, obj_length, obj_width = self.item_hm(item_id, orient)
         
         # Display the top-view and bottom-view heightmaps
         if only_top == False:
             fig, axs = plt.subplots(1, 2, figsize=(10, 5))
             axs[0].imshow(Ht, cmap='viridis', origin='lower', extent=[0, self.box_size[0], 0, self.box_size[1]])
-            axs[0].set_title('Top View Heightmap')
             axs[0].set_xlabel('X')
             axs[0].set_ylabel('Y')
+            axs[0].set_title(f"Rotated Top Heightmap (orient={orient}°)")
             axs[1].imshow(Hb, cmap='viridis', origin='lower', extent=[0, self.box_size[0], 0, self.box_size[1]])
-            axs[1].set_title('Bottom View Heightmap')
             axs[1].set_xlabel('X')
             axs[1].set_ylabel('Y')
+            axs[1].set_title(f"Rotated Bottom Heightmap (orient={orient}°)")
             plt.tight_layout()
             plt.show()
         if only_top == True:
             # Display the top-view  heightmap
             fig, axs = plt.subplots(1, 1, figsize=(10, 5))
             axs.imshow(Ht, cmap='viridis', origin='lower', extent=[0, self.box_size[0], 0, self.box_size[1]])
-            axs.set_title('Top View Heightmap')
             axs.set_xlabel('X')
             axs.set_ylabel('Y')
+            axs.set_title(f"Heightmap (orient={orient}°)")
             plt.tight_layout()
             plt.show()
 
-    def visualize_object_heightmaps_3d(self, item_id, orient, only_top = False ):
+    def visualize_object_heightmaps_3d(self, Ht, Hb, orient, only_top = False ):
         '''
         item_id: integer
         orient: list of 3 elements [roll, pitch, yaw]
@@ -182,7 +200,6 @@ class Env(object):
         
         Function to visualize the object heightmaps (bottom and top) in 3D
         '''
-        Ht,Hb, obj_length, obj_width = self.item_hm(item_id, orient)
 
         # Create 3D grid
         X, Y = np.meshgrid(np.linspace(0, self.box_size[0], Ht.shape[1]),
@@ -192,18 +209,18 @@ class Env(object):
             fig = plt.figure(figsize=(10, 5))
             ax1 = fig.add_subplot(121, projection='3d')
             ax1.plot_surface(X, Y, Ht, cmap='viridis')
-            ax1.set_title('Top View Heightmap')
             ax1.set_xlabel('X')
             ax1.set_ylabel('Y')
             ax1.set_zlabel('Height')
+            ax1.set_title(f"Rotated Top Heightmap (orient={orient}°)")
 
             # Plot the bottom-view heightmap
             ax2 = fig.add_subplot(122, projection='3d')
             ax2.plot_surface(X, Y, Hb, cmap='viridis')
-            ax2.set_title('Bottom View Heightmap')
             ax2.set_xlabel('X')
             ax2.set_ylabel('Y')
             ax2.set_zlabel('Height')
+            ax2.set_title(f"Rotated Bottom Heightmap (orient={orient}°)")
             plt.tight_layout()
             plt.show()
 
@@ -212,10 +229,10 @@ class Env(object):
             fig = plt.figure(figsize=(10, 5))
             ax = fig.add_subplot(111, projection='3d')
             ax.plot_surface(X, Y, Ht, cmap='viridis')
-            ax.set_title('Top Heightmap')
             ax.set_xlabel('X')
             ax.set_ylabel('Y')
             ax.set_zlabel('Height')
+            ax.set_title(f"Heightmap (orient={orient}°)")
             plt.tight_layout()
             plt.show()
 
@@ -261,7 +278,7 @@ class Env(object):
         orient: list of 3 elements [roll, pitch, yaw]
         output: 2 numpy arrays of shape (resolution, resolution) - bottom and top heightmaps
         
-        Function to compute the item (with a certain item_id) heigthmap
+        Function to compute the item (with a certain item_id) heightmap
         '''
         
         # Stores the item original position and orientation
@@ -269,13 +286,18 @@ class Env(object):
         quater = p.getQuaternionFromEuler(orient)
         
         # Set new orientation for the item
-        p.resetBasePositionAndOrientation(item_id,[1,1,1],quater)       
+        p.resetBasePositionAndOrientation(item_id, [1, 1, 1], quater)       
         
-        # Extracts the boundingbox of the item
+        # Extracts the bounding box of the item
         AABB = p.getAABB(item_id)                                      
         obj_length = AABB[1][0] - AABB[0][0]
         obj_width = AABB[1][1] - AABB[0][1]
-         # Computation of a grid of points within the specified box size
+
+        # Get the center of mass of the item
+        com_pos, _ = p.getBasePositionAndOrientation(item_id)
+        com_height = com_pos[-1]- AABB[0][2] # Center of mass height wrt the bounding box base
+
+        # Computation of a grid of points within the specified box size
         sep = self.box_size[0] / self.resolution
         xpos = np.arange(sep / 2, self.box_size[0] + sep / 2, sep)
         ypos = np.arange(sep / 2, self.box_size[1] + sep / 2, sep)
@@ -287,29 +309,31 @@ class Env(object):
         xscan += AABB[0][0] - x_offset
         yscan += AABB[0][1] - y_offset
         
-
         # Ray casting from the top to the bottom and from the bottom to the top of the item's bounding box 
         # to find the height of points on the surface of the bounding box.
-        ScanArray = np.array([xscan.reshape(-1),yscan.reshape(-1)])
-        Top = np.insert(ScanArray,2,AABB[1][2],axis=0).T
-        Down = np.insert(ScanArray,2,AABB[0][2],axis=0).T
-        RayScanTD = np.array(p.rayTestBatch(Top, Down),dtype=object)
-        RayScanDT = np.array(p.rayTestBatch(Down, Top),dtype=object)
+        ScanArray = np.array([xscan.reshape(-1), yscan.reshape(-1)])
+        Top = np.insert(ScanArray, 2, AABB[1][2], axis=0).T
+        Down = np.insert(ScanArray, 2, AABB[0][2], axis=0).T
+        RayScanTD = np.array(p.rayTestBatch(Top, Down), dtype=object)
+        RayScanDT = np.array(p.rayTestBatch(Down, Top), dtype=object)
         
         # Computes the heights of points on the top (Ht) and bottom (Hb) surfaces of the bounding box based on the results of the ray casting.
-        Ht = (1-RayScanTD[:,2])*(AABB[1][2]-AABB[0][2])
-        RayScanDT = RayScanDT[:,2]
-        RayScanDT[RayScanDT==1] = np.inf
-        Hb = RayScanDT*(AABB[1][2]-AABB[0][2])
-        # Replace infinity values in Hb with the maximum height of the bounding box
-        max_height = AABB[1][2] - AABB[0][2]
-        Hb[Hb == np.inf] = 0
-        Ht = Ht.astype('float64').reshape(len(ypos),len(xpos)).T
-        Hb = Hb.astype('float64').reshape(len(ypos),len(xpos)).T
+        Ht = (1 - RayScanTD[:, 2]) * (AABB[1][2] - AABB[0][2])
+        RayScanDT = RayScanDT[:, 2]
+        RayScanDT[RayScanDT == 1] = np.inf
+        Hb = RayScanDT * (AABB[1][2] - AABB[0][2])
+        # Replace infinity values in Hb with zero
+        Hb[Hb == np.inf] =  0
+        
+        # Adjust Hb to have zero at the height of the center of mass
+        Hb = Hb - com_height
+        
+        Ht = Ht.astype('float64').reshape(len(ypos), len(xpos)).T
+        Hb = Hb.astype('float64').reshape(len(ypos), len(xpos)).T
         
         # Resets the initial orientation for the item
-        p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
-        return Ht,Hb, obj_length, obj_width
+        p.resetBasePositionAndOrientation(item_id, old_pos, old_quater)
+        return Ht, Hb, obj_length, obj_width
     
 
 
@@ -415,34 +439,43 @@ class Env(object):
 
         Function to reset the position and orientation of the item based on the provided transform argument[target_euler,target_pos]. It updates the environment attributes (env.unpacked and env.packed) accordingly.
         '''
+        # Store the original position and orientation of the item
         old_pos, old_quater = p.getBasePositionAndOrientation(item_id) 
+        
+        # Check if the item is already packed
         if item_id in self.packed:
-            print("item {} already packed!".format(item_id))
+            print(f" {red}Item", item_id, f"already packed!{exit}")
             return False
-        z_shift = 0.005
+        # Extract the target position and orientation from the transform argument
         target_euler = transform[0:3]
         target_pos = transform[3:6]
-        pos, quater = p.getBasePositionAndOrientation(item_id)
         new_quater = p.getQuaternionFromEuler(target_euler)
-        p.resetBasePositionAndOrientation(item_id, pos, new_quater)
-        AABB = p.getAABB(item_id)
-        shift = np.array(pos)-(np.array(AABB[0])+np.array([self.box_size[0]/2/self.resolution,
-                         self.box_size[1]/2/self.resolution,z_shift]))
-        new_pos = target_pos+shift
-        p.resetBasePositionAndOrientation(item_id, new_pos, new_quater)
+
+        # Set the new position and orientation for the item
+        p.resetBasePositionAndOrientation(item_id, target_pos, new_quater)
+
+        # Checks the stability of the item based on its final position and orientation
         for i in range(500):
             p.stepSimulation()
             time.sleep(1./240.)
-
-        #-- After the simulation, it checks the stability of the item based on its final position and orientation.
         curr_pos, curr_quater = p.getBasePositionAndOrientation(item_id)
         curr_euler = np.array(p.getEulerFromQuaternion(curr_quater))
+        
         #-- Stability (boolean) is determined by checking if the item has settled within a small tolerance of its target position and orientation. 
-        stability_bool = np.linalg.norm(new_pos-curr_pos)<0.02 and curr_euler.dot(target_euler)/(np.linalg.norm(curr_euler)*np.linalg.norm(target_euler)) > np.pi*2/3
+
+        stability_bool = np.linalg.norm(target_pos-curr_pos) < self.stability_treshold_position and self.euler_angle_distance(curr_euler,target_euler) > self.stability_treshold_orientation
+        print('Orientation error:', self.euler_angle_distance(curr_euler,target_euler))
+        print('Position error:', np.linalg.norm(target_pos-curr_pos))
+
         stability = 1 if stability_bool else 0        
+        
+        # Update the packed and unpacked lists
         self.packed.append(item_id)
         self.unpacked.remove(item_id)
+        
+        # Compute the new box heightmap
         NewBoxHeightMap = self.box_heightmap()
+
         return NewBoxHeightMap, stability, old_pos, old_quater
     
     def unpack_item(self, item_id, old_pos, old_quater):
@@ -642,7 +675,7 @@ class Env(object):
         print('------------------Reward  is: ', reward,'  ------------------')
         return reward
     
-    def get_z(self,Hc,Hb,pixel_x,pixel_y,obj_length,obj_width):
+    def get_z(self,Hc, Hb, pixel_x, pixel_y, obj_length, obj_width):
         '''
         Hc: numpy array of shape (resolution, resolution) representing the current box heightmap
         Hb: numpy array of shape (resolution, resolution) representing the heightmap of the item
@@ -658,11 +691,7 @@ class Env(object):
         max_z = 0
         ss_range = range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)
         tt_range = range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)
-
-        if np.all(Hc == 0): # No items in the box
-            max_z = 0
-        else:
-            for s in s_range:
+        for s in s_range:
                 for t in t_range:
                         for ss in ss_range:
                             for tt in tt_range:
@@ -681,82 +710,35 @@ class Env(object):
         '''
         return np.all(heightmap == max_height)
     
-if __name__ == '__main__':
-
- #-- Path with the URDF files
-    obj_folder_path = 'objects/'
-    
-    #-- PyBullet Environment setup 
-    box_size=(0.4,0.4,0.3)
-    resolution = 50
-    env = Env(obj_dir = obj_folder_path, is_GUI=True, box_size=box_size, resolution = resolution)
-    print('----------------------------------------')
-    print('Setup of PyBullet environment: \nBox size: ',box_size, '\nResolution: ',resolution)
-
-    #-- Generate csv file with objects 
-    tot_num_objects = env.generate_urdf_csv()
-    print('----------------------------------------')
-    print('Generating CSV with objects')
-
-    #-- Draw Box
-    env.draw_box( width=5)
-
-    #-- Load items 
-    K = 3
-    item_numbers = np.random.randint(0, 100, size=K)
-    item_ids = env.load_items(item_numbers)
-
-    for i in range(500):
-        p.stepSimulation()
-    print('----------------------------------------')
-    print('K = ', K, 'Items Loaded')
-
-
-    #-- Compute Box HeightMap: shape (resolution, resolution)
-    BoxHeightMap = env.box_heightmap()
-    print('----------------------------------------')
-    print('Computed Box Height Map')
-    for i in range(500):
-        p.stepSimulation()
-
-
-    #-- Compute bounding boxes Items Volumes and orders them  
-    volume_bbox, bbox_order = env.order_by_bbox_volume(env.loaded_ids)
-    print(' The order by bbox volume is: ', bbox_order)
+    def euler_angle_distance(self, curr_euler, target_euler):
+        """
+        Calculate the metric expressing the distance between two Euler angles.
         
-
-    #-- Compute  Items Volumes and orders them  
-    volume_items, volume_order = env.order_by_item_volume(env.loaded_ids)
-    print(' The order by item volume is: ', volume_order)
-
-
-    #-- Pack items with random transformation
-    prev_obj = 0
-    for i,item_ in enumerate(bbox_order):
-        print('Packing item ', i+1, 'with id: ', item_)
-        target_euler = [0,0,0]
-        target_pos = [20-i*5,20-i*5,0] # cm
-        transform = np.empty(6,)
-        transform[0:3] = target_euler
-        transform[3:6] = target_pos
-        ''' Pack item '''
-        NewBoxHeightMap, stability_of_packing = env.pack_item(item_ , transform)
-        print(' Is the placement stable?', stability_of_packing)
-        volume_items_packed, _ = env.order_by_item_volume(env.packed)
-        current_obj = env.Objective_function(env.packed, volume_items_packed, NewBoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
-        if i>= 1:
-            ''' Compute reward '''
-            Reward = env.Reward_function(prev_obj, current_obj)
-        prev_obj = current_obj
-
-    env.visualize_box_heightmap()
-    env.visualize_box_heightmap_3d()
-    
-    for i in range(500):
-        p.stepSimulation()
-
-    #-- Remove all items 
-    item_ids = env.remove_all_items()
-
-    for i in range(500):
-        p.stepSimulation()
+        Parameters:
+        curr_euler (np.ndarray): Current Euler angles (roll, pitch, yaw).
+        target_euler (np.ndarray): Target Euler angles (roll, pitch, yaw).
+        
+        Returns:
+        float: A value representing the cosine of the angle between the two Euler angle vectors.
+        """
+        # Ensure the inputs are numpy arrays
+        curr_euler = np.array(curr_euler)
+        target_euler = np.array(target_euler)
+        
+        # Calculate the dot product
+        dot_product = np.dot(curr_euler, target_euler)
+        
+        # Calculate the magnitudes (norms) of the Euler angle vectors
+        curr_norm = np.linalg.norm(curr_euler)
+        target_norm = np.linalg.norm(target_euler)
+        
+        # Calculate the cosine of the angle between the two vectors
+        cosine_similarity = dot_product / (curr_norm * target_norm)
+        
+        # Clamp the cosine similarity value to the range [-1, 1] to avoid numerical errors
+        cosine_similarity = np.clip(cosine_similarity, -1.0, 1.0)
+        
+        # Calculate the angle (in radians) between the two vectors
+        angle = np.arccos(cosine_similarity)
+        
+        return angle
