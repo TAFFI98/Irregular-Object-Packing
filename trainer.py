@@ -11,6 +11,7 @@ green = "\033[1;32m"
 green_light = "\033[0;32m"
 yellow = "\033[0;33m"
 blue = "\033[1;34m"
+blue_light = "\033[0;34m"
 purple = "\033[1;35m"
 cyan = "\033[0;36m"
 white = "\033[1;37m"
@@ -21,13 +22,14 @@ bold = "\033[1m"
 reset = "\033[0m"
 import os
 import time
+import glob
 import numpy as np
 import cv2
+import pickle
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from utils import CrossEntropyLoss2d
 from models import  placement_net, selection_net
 from scipy import ndimage
 import cv2
@@ -35,12 +37,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Trainer(object):
-    def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot_worker = None, file_snapshot_manager = None, load_snapshot_worker = False, load_snapshot_manager = False ,K = 20, n_y = 16):
+    def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot_worker = None, file_snapshot_manager = None, load_snapshot_worker = False, load_snapshot_manager = False ,K = 20, n_y = 16, epoch = 0, episode = 0):
         
         self.n_y = n_y # number of discrete yaw orientations
         self.method = method # stage_1 or stage_2
         self.K = K # total number of items to be packed
-        self.epoch = 0 # epoch counter
+        self.epoch = epoch # epoch counter
+        self.episode = episode # episode counter
         lr = 1e-4 # learning rate
         momentum = 0.9 # momentum
         weight_decay = 2e-5 # weight decay
@@ -62,14 +65,13 @@ class Trainer(object):
             self.worker_network = placement_net(n_y = self.n_y, in_channel_unet = 3, out_channel = 1, use_cuda = self.use_cuda)
                 
             # Initialize Huber loss
-            self.criterion = torch.nn.SmoothL1Loss(reduction=None) # Huber loss
+            self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
             self.future_reward_discount = future_reward_discount
             if self.use_cuda:
                     self.criterion = self.criterion.cuda()
 
             # Load pre-trained model
             if load_snapshot_worker:
-                self.epoch = int(file_snapshot_worker.split('_')[-1].split('.')[0])
                 self.worker_network.load_state_dict(torch.load(file_snapshot_worker))
                 print('Pre-trained model snapshot loaded from: %s' % (file_snapshot_worker))
 
@@ -90,7 +92,6 @@ class Trainer(object):
             self.manager_network = selection_net(use_cuda = self.use_cuda, K = K)
             # Load pre-trained model
             if load_snapshot_manager:   
-                self.epoch = int(file_snapshot_manager.split('_')[-1].split('.')[0])
                 self.manager_network.load_state_dict(torch.load(file_snapshot_manager))
                 print('Pre-trained model snapshot loaded from: %s' % (file_snapshot_manager))
             self.manager_network.train()
@@ -99,6 +100,7 @@ class Trainer(object):
             if self.use_cuda:
                 self.manager_network = self.manager_network.cuda()
 
+        
         print('---------------------------------------------------')
         print(f"{bold}TRAINER INITIALIZED.{reset}")
         print(f"{bold}METHOD: %s" % (self.method),f"{reset}")
@@ -161,10 +163,10 @@ class Trainer(object):
         print('Future reward: %f' % (future_reward))
         yt = current_reward + self.future_reward_discount * future_reward
         print('Expected reward: %f ' % (yt))
-        return yt
+        return current_reward, yt
 
     # Compute labels and backpropagate
-    def backprop(self, Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1, stage = 'stage_1'):
+    def backprop(self, Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1):
             '''
             Q_values: predicted Q_values
             yt: target Q_value
@@ -198,14 +200,82 @@ class Trainer(object):
             loss_value = loss.cpu().data.numpy()
             loss_value = loss_value/2
 
-            print('----------------------------------------------------------------Training loss: %f' % (loss_value),'-------------------------------------------------------------------')
+            print(f'{blue_light}------------------ Training loss: %f' % (loss_value),f'------------------{reset}')
             if self.epoch % 4 == 0 and self.method == 'stage_2':
-                print('!!!!!!!!Backpropagating on manager network!!!!!!!!')
+                print(f'{blue_light}--> Backpropagating loss on manager network{reset}')
                 self.optimizer_manager.step()
 
-            print('!!!!!!!!Backpropagating on worker network!!!!!!!!')
+            print(f'{blue_light}-->Backpropagating loss on worker network{reset}')
             self.optimizer_worker.step()
-            self.epoch= self.epoch+1
+
+            self.epoch = self.epoch+1
+            return loss_value
+
+    def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images = 4):
+        # Ensure the folder exists
+        os.makedirs(folder, exist_ok=True)
+
+        # Get the number of epochs
+        num_epochs = int(list_epochs_for_plot[-1])
+
+        # Save the lists to a file
+        with open(os.path.join(folder, f'loss_epoch_{num_epochs}.pkl'), 'wb') as f:
+            pickle.dump((list_epochs_for_plot, losses), f)
+
+        # Plot the data
+        plt.figure()
+        plt.plot(list_epochs_for_plot, losses)
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.grid(True)
+
+        # Save the plot to a file
+        plt.savefig(os.path.join(folder, f'loss_epoch_{num_epochs}.png'))
+        plt.close()
+        # Get a list of all files in the directory
+        files = glob.glob(os.path.join(folder, '*'))
+
+        # If there are more than 5 files
+        if len(files) > max_images:
+                # Sort the files by modification time
+                files.sort(key=os.path.getmtime)
+
+                # Remove the oldest file
+                os.remove(files[0])
+                os.remove(files[1])
+
+    def save_and_plot_reward(self, list_epochs_for_plot, rewards, folder, max_images = 4):
+        # Ensure the folder exists
+        os.makedirs(folder, exist_ok=True)
+
+        # Get the number of epochs
+        num_epochs = int(list_epochs_for_plot[-1])
+
+        # Save the lists to a file
+        with open(os.path.join(folder, f'reward_epoch_{num_epochs}.pkl'), 'wb') as f:
+            pickle.dump((list_epochs_for_plot, rewards), f)
+
+        # Plot the data
+        plt.figure()
+        plt.plot(list_epochs_for_plot, rewards)
+        plt.xlabel('Epochs')
+        plt.ylabel('Reward')
+        plt.grid(True)
+
+        # Save the plot to a file
+        plt.savefig(os.path.join(folder, f'reward_epoch_{num_epochs}.png'))
+        plt.close()
+        # Get a list of all files in the directory
+        files = glob.glob(os.path.join(folder, '*'))
+
+        # If there are more than 5 files
+        if len(files) > max_images:
+                # Sort the files by modification time
+                files.sort(key=os.path.getmtime)
+
+                # Remove the oldest file
+                os.remove(files[0])
+                os.remove(files[1])
 
     # Visualize the predictions of the worker network: Q_values
     def visualize_Q_values(self, Q_values, show = True):
@@ -288,7 +358,7 @@ class Trainer(object):
 
             # Pack chosen item with predicted pose
             target_euler = [r,p,y]
-            
+            #target_euler = [0,0,0] # JUST TO DEBUG
             # Compute z coordinate,
             _,Hb_selected_obj, obj_length, obj_width = env.item_hm(chosen_item_index, target_euler)
 
@@ -304,10 +374,14 @@ class Trainer(object):
             transform[3:6] = target_pos
             print('----------------------------------------')
             print(f'{yellow}Check packing validity for chosen item with index', chosen_item_index, 'with candidate predicted: \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
+            
+            # Pack item
             BoxHeightMap, stability_of_packing, old_pos, old_quater = env.pack_item(chosen_item_index , transform)
+            
             # Check collision with box margins 
             BBOX_object = env.compute_object_bbox(chosen_item_index)
-            # Show the bounding box of the object to check collisions viusllay
+            
+            # Show the bounding box of the object to check collisions visullay
             bbox_obj_line_ids = env.drawAABB(BBOX_object, width=1)
             collision = self.bounding_box_collision(env.bbox_box, BBOX_object)
 
@@ -368,17 +442,28 @@ class Trainer(object):
         # Check if any height in the new heightmap exceeds the box height
         return max_z > box_height
     
-    def save_snapshot(self):
+    def save_snapshot(self, max_snapshots=5):
         """
         Save snapshots of the trained models.
         """
-        torch.save(self.worker_network.state_dict(), f'snapshots/worker_network_{self.epoch}.pth')
+        os.makedirs('snapshots/models/', exist_ok=True)
+        torch.save(self.worker_network.state_dict(), f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth')
 
         # If there's a manager network, save it as well
         if self.method == 'stage_2':
-            torch.save(self.manager_network.state_dict(), f'snapshots/manager_network_{self.epoch}.pth')
+            torch.save(self.manager_network.state_dict(), f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth')
 
-            return f'snapshots/manager_network_{self.epoch}.pth', f'snapshots/worker_network_{self.epoch}.pth'
 
-        return f'snapshots/manager_network_{self.epoch}.pth', f''
+        # Get a list of all files in the directory
+        files = glob.glob(os.path.join('snapshots/models/', '*'))
+
+        # If there are more than 5 files
+        if len(files) > max_snapshots:
+                # Sort the files by modification time
+                files.sort(key=os.path.getmtime)
+
+                # Remove the oldest file
+                os.remove(files[0])
+
+        return f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth', f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth'
 

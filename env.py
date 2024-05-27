@@ -80,7 +80,7 @@ class Env(object):
         self.packed = []
         #-- Initialize ids of the objects not packed
         self.unpacked = []       
-
+        # -- Initialize the stability tresholds
         self.stability_treshold_position = 0.02
         self.stability_treshold_orientation = np.pi*2/3
 
@@ -293,9 +293,28 @@ class Env(object):
         obj_length = AABB[1][0] - AABB[0][0]
         obj_width = AABB[1][1] - AABB[0][1]
 
+        _, vertices = p.getMeshData(bodyUniqueId=item_id, linkIndex=-1)
+
+        # vertices is a list of tuples, each representing a vertex of the mesh.
+        # We can use a list comprehension to get all the z values and then find the maximum.
+
+        # Get the rotation matrix from the quaternion orientation
+        rotation_matrix = np.array(p.getMatrixFromQuaternion(quater)).reshape(3, 3)
+
+        # Transform the vertices to the global reference frame
+        global_vertices = [np.dot(rotation_matrix, vertex) + np.array([1, 1, 1]) for vertex in vertices]
+
+        # Now you can find the maximum z value in the global reference frame
+        min_z_global = min(vertex[2] for vertex in global_vertices)
+        max_z_global = max(vertex[2] for vertex in global_vertices)
+        min_x_global = min(vertex[0] for vertex in global_vertices)
+        max_x_global = max(vertex[0] for vertex in global_vertices)
+        min_y_global = min(vertex[1] for vertex in global_vertices)
+        max_y_global = max(vertex[1] for vertex in global_vertices)
+
         # Get the center of mass of the item
         com_pos, _ = p.getBasePositionAndOrientation(item_id)
-        com_height = com_pos[-1]- AABB[0][2] # Center of mass height wrt the bounding box base
+        com_height = com_pos[-1]- min_z_global 
 
         # Computation of a grid of points within the specified box size
         sep = self.box_size[0] / self.resolution
@@ -306,22 +325,22 @@ class Env(object):
         # Adjust the position of the grid to center the object in the 2D image
         x_offset = (self.box_size[0] - obj_length) / 2
         y_offset = (self.box_size[1] - obj_width) / 2
-        xscan += AABB[0][0] - x_offset
-        yscan += AABB[0][1] - y_offset
+        xscan += min_x_global - x_offset
+        yscan += min_y_global - y_offset
         
         # Ray casting from the top to the bottom and from the bottom to the top of the item's bounding box 
         # to find the height of points on the surface of the bounding box.
         ScanArray = np.array([xscan.reshape(-1), yscan.reshape(-1)])
-        Top = np.insert(ScanArray, 2, AABB[1][2], axis=0).T
-        Down = np.insert(ScanArray, 2, AABB[0][2], axis=0).T
+        Top = np.insert(ScanArray, 2, max_z_global, axis=0).T
+        Down = np.insert(ScanArray, 2, min_z_global, axis=0).T
         RayScanTD = np.array(p.rayTestBatch(Top, Down), dtype=object)
         RayScanDT = np.array(p.rayTestBatch(Down, Top), dtype=object)
         
         # Computes the heights of points on the top (Ht) and bottom (Hb) surfaces of the bounding box based on the results of the ray casting.
-        Ht = (1 - RayScanTD[:, 2]) * (AABB[1][2] - AABB[0][2])
+        Ht = (1 - RayScanTD[:, 2]) * (max_z_global - min_z_global)
         RayScanDT = RayScanDT[:, 2]
         RayScanDT[RayScanDT == 1] = np.inf
-        Hb = RayScanDT * (AABB[1][2] - AABB[0][2])
+        Hb = RayScanDT * (max_z_global - min_z_global)
         # Replace infinity values in Hb with zero
         Hb[Hb == np.inf] =  0
         
@@ -719,18 +738,28 @@ class Env(object):
         target_euler (np.ndarray): Target Euler angles (roll, pitch, yaw).
         
         Returns:
-        float: A value representing the cosine of the angle between the two Euler angle vectors.
+        float: A value representing the angle between the two Euler angle vectors in radians.
+            If one of the vectors is zero, returns the norm of the non-zero vector.
+            If both vectors are zero, returns 0.
         """
         # Ensure the inputs are numpy arrays
         curr_euler = np.array(curr_euler)
         target_euler = np.array(target_euler)
         
-        # Calculate the dot product
-        dot_product = np.dot(curr_euler, target_euler)
-        
         # Calculate the magnitudes (norms) of the Euler angle vectors
         curr_norm = np.linalg.norm(curr_euler)
         target_norm = np.linalg.norm(target_euler)
+        
+        # Handle cases where one or both norms are zero
+        if curr_norm == 0 and target_norm == 0:
+            return 0.0  # Both vectors are zero, the angle distance is zero
+        elif curr_norm == 0:
+            return target_norm  # The distance is the magnitude of the target vector
+        elif target_norm == 0:
+            return curr_norm  # The distance is the magnitude of the current vector
+        
+        # Calculate the dot product
+        dot_product = np.dot(curr_euler, target_euler)
         
         # Calculate the cosine of the angle between the two vectors
         cosine_similarity = dot_product / (curr_norm * target_norm)

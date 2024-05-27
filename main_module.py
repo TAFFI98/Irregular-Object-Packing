@@ -7,6 +7,7 @@ blue = "\033[1;34m"
 purple = "\033[1;35m"
 cyan = "\033[1;36m"
 white = "\033[1;37m"
+purple_light = "\033[0;35m"
 
 # ANSI escape sequence for bold text
 bold = "\033[1m"
@@ -37,54 +38,102 @@ def train(args):
     # Initialize snapshots
     manager_snap = args.manager_snapshot
     worker_snap = args.worker_snapshot
+    list_epochs_for_plot, losses, rewards = [],[],[]
+    
+    for new_episode in range(args.new_episodes):
+        
+        # Initialize episode and epochs counters
+        if 'trainer' not in locals():
+                
+                # First time the main loop is executed
+                if args.stage == 1:
+                    chosen_train_method = 'stage_1'
+                    load_snapshot_manager_ = False
+                    if args.load_snapshot_worker == True and worker_snap!= None:
+                        load_snapshot_worker_ = True
+                        episode = int(worker_snap.split('_')[-3])
+                        epoch = int(worker_snap.split('_')[-1].strip('.pth'))
+                        print('----------------------------------------')
+                        print('----------------------------------------')
+                        print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
+                        print('----------------------------------------')
+                        print('----------------------------------------')
+                    else:
+                        load_snapshot_worker_ = False
+                        episode = 0
+                        epoch = 0
+                        print('----------------------------------------')
+                        print('----------------------------------------')
+                        print(f"{purple}Starting from scratch --> EPISODE:", episode,f"{reset}")                
+                        print('----------------------------------------')
+                        print('----------------------------------------')
 
-    for ep in range(args.episodes):
-        # Load snapshots if existing
-        if args.stage == 1:
-            chosen_train_method = 'stage_1'
-            if args.load_snapshot_worker and worker_snap!= None:
-                load_snapshot_worker_ = True
-                load_snapshot_manager_ = False
-            else:
-                load_snapshot_worker_ = False
-                load_snapshot_manager_ = False
-        elif args.stage == 2:
-            chosen_train_method = 'stage_2'
-            if args.load_snapshot_worker and worker_snap!= None:
-                load_snapshot_worker_ = True
-            else:
-                load_snapshot_worker_ = False
-            if args.load_snapshot_manager and manager_snap!= None:
-                load_snapshot_manager_ = True
-            else:   
-                load_snapshot_manager_ = False
+                elif args.stage == 2:
+                    chosen_train_method = 'stage_2'
+                    if args.load_snapshot_worker == True and worker_snap!= None:
+                        load_snapshot_worker_ = True
+                        episode = int(worker_snap.split('_')[-3])
+                        epoch = int(worker_snap.split('_')[-1].strip('.pth'))
+                        epoch = int(worker_snap.split('_')[-1].strip('.pth'))
+                        print('----------------------------------------')
+                        print('----------------------------------------')
+                        print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
+                        print('----------------------------------------')
+                        print('----------------------------------------')
+                    else:
+                        load_snapshot_worker_ = False
+                        episode = 0
+                        epoch = 0
+                        print('----------------------------------------')
+                        print('----------------------------------------')
+                        print(f"{purple}Starting from scratch --> EPISODE: ", episode,f"{reset}")                
+                        print('----------------------------------------')
+                        print('----------------------------------------')
+                    if args.load_snapshot_manager == True and manager_snap!= None:
+                        load_snapshot_manager_ = True
+                    else:   
+                        load_snapshot_manager_ = False
 
-        # Setup environment
-        #is_sim = args.is_sim        # per adesso is_sim lo lascio fisso a True, poi da definire a livello di logica quando si implementa il robot fisico
 
-        # environment setup
+        else:
+                # Not the first time the main loop is executed
+                episode = new_episode
+                print('----------------------------------------')
+                print('----------------------------------------')
+                print(f"{purple}NEW EPISODE: ", episode,f"{reset}")                
+                print('----------------------------------------')
+                print('----------------------------------------')
+                
+
+        # Initialize trainer
+        trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                load_snapshot_manager = load_snapshot_manager_, load_snapshot_worker = load_snapshot_worker_, 
+                file_snapshot_manager = manager_snap, file_snapshot_worker = worker_snap,
+                K=args.k_sort, episode = episode, epoch = epoch)
+
+        # Environment setup
         box_size = (0.4,0.4,0.3)
         resolution = 50
         env = Env(obj_dir = args.obj_folder_path, is_GUI = args.gui, box_size=box_size, resolution = resolution)
-        print('----------------------------------------')
-        print('----------------------------------------')
-        print(f"{bold}{green}EPISODE: ", ep, " out of ", args.episodes,f"{reset}")        
-        print('----------------------------------------')
-        print('----------------------------------------')
         print('Set up of PyBullet Simulation environment: \nBox size: ',box_size, '\nResolution: ',resolution)
 
+
+        # Define number of items for current episode
+        if args.k_min < 2:
+            raise ValueError("k_min must be greater than or equal to 2")
+        K_obj = random.choice(list(range(args.k_min,args.k_max+1)))
         # Generate csv file with objects
         print('----------------------------------------') 
         _ = env.generate_urdf_csv()
         print('----------------------------------------')
-        print(f'{bold}Generating CSV with ', args.k_obj, f' objects:{reset}')
+        print(f'{bold}Generating CSV with ', K_obj, f' objects:{reset}')
         #-- Draw Box
         env.draw_box(width=5)
 
         #-- Load items 
         values = np.arange(start=0, stop=100+1, step=1)
         #item_numbers = np.array([10]) #to debug
-        item_numbers =  np.random.choice(values, args.k_obj, replace=False)
+        item_numbers =  np.random.choice(values, K_obj, replace=False)
         
         item_ids = env.load_items(item_numbers)
 
@@ -94,7 +143,7 @@ def train(args):
             env.p.stepSimulation() 
 
         print('----------------------------------------')
-        print(f"{bold}{purple}K = ", args.k_obj, 'Items Loaded', f"{reset}")
+        print(f"{purple_light}K = ", K_obj, 'Items Loaded for this episode', f"{reset}")
         print('--------------------------------------')
         print('Order of objects ids in simulation according to decreasing bounding box volume: ', bbox_order)
         print('Loaded ids before packing: ', env.loaded_ids)
@@ -104,16 +153,10 @@ def train(args):
 
         prev_obj = 0 #objective function score initiaization
         eps_height = 0.05 * box_size[2] # 5% of box height
-
-        # Initialize trainer
-        trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
-            load_snapshot_manager = load_snapshot_manager_, load_snapshot_worker = load_snapshot_worker_, 
-            file_snapshot_manager = manager_snap, file_snapshot_worker = worker_snap,
-            K=args.k_sort)
-        
+        print(f"{purple}Worker network already trained on ", epoch, f"EPOCHS{reset}")
         # loop over the loaded objects
-        for i in range(args.k_obj):
-
+        for i in range(K_obj):
+            print(f"{purple}Packing iteration for current episode: ", i, "out of ", K_obj, f"{reset}") 
             heightmap_box = env.box_heightmap()
             print(' --- Computed box Heightmap --- ')
             #env.visualize_box_heightmap()
@@ -141,7 +184,7 @@ def train(args):
             if args.stage == 1:
                 # pack largest object first
                 print('---------------------------------------')
-                print(f"{bold}{green}Stage 1: Object selection according to largest bounding box volume{reset}")
+                print(f"{yellow}SELECTION: Object selection according to largest bounding box volume{reset}")
                 next_obj = bbox_order[i]
                 print(f"{bold}{green}Selected object id: ", next_obj, f"{reset}")
 
@@ -149,7 +192,7 @@ def train(args):
 
                 # select k objects with the largest bounding box volume
                 print('---------------------------------------')
-                print(f"{bold} Stage 2: Object selection according to Manager Network Selection{reset}")
+                print(f"{yellow} SELECTION: Object selection according to Manager Network Selection{reset}")
                 
                 k_sort = args.k_sort 
 
@@ -193,8 +236,8 @@ def train(args):
 
                 next_obj = chosen_item_index
 
-            # discretize r,p,y angles
-            roll = np.arange(0,360,90) # 90 degrees discretization
+            # discretize r,p,y angles --> 90 degrees discretization
+            roll = np.arange(0,360,90) 
             pitch = np.arange(0,360,90) 
             roll_pitch_angles = [] # list of roll-pitch angles
             heightmaps_rp = []     # list of heightmaps for each roll-pitch angle
@@ -227,8 +270,8 @@ def train(args):
 
             # forward pass into worker to get Q-values for placement
             Q_values = trainer.forward_worker_network(env, roll_pitch_angles, input_placement_network_1, input_placement_network_2)
-            print(f"{bold}{green}Both in Stage 1 and 2: Computing packing pose of the selected object with placement network{reset}")
-            print(f"{bold}{green}Q values computed for every candidate pose.{reset}")
+            print(f"{yellow}PLACEMENT: Computing packing pose of the selected object with placement network{reset}")
+            print("Q values computed for every candidate pose.")
 
             # Uncomment to plot Q-values
             # Qvisual = trainer.visualize_Q_values(Q_values, show=True)
@@ -243,22 +286,33 @@ def train(args):
             if i>= 1:
                     ''' Compute reward '''
                     print('Previous Objective function is: ', prev_obj)
-                    print('Backpropagating...')
-                    yt = trainer.get_Qtarget_value(Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env)
-                    trainer.backprop(Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1)
-
+                    current_reward, yt = trainer.get_Qtarget_value(Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env)
+                    
+                    loss_value = trainer.backprop(Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1)
+                
+                    # Updating training epoch
+                    epoch += 1
+                    print(f"{purple}Worker network trained on ", epoch, f"EPOCHS{reset}")
+                    
+                    # save snapshots and remove old ones if more than max_snapshots
+                    manager_snapshot, worker_snapshot = trainer.save_snapshot(max_snapshots=5) 
+                    
+                    # save and plot losses and rewards
+                    list_epochs_for_plot.append(epoch)
+                    losses.append(loss_value)
+                    rewards.append(current_reward)
+                    trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
+                    trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
+            
             prev_obj = current_obj
             heightmap_box = NewBoxHeightMap
-            manager_snapshot, worker_snapshot = trainer.save_snapshot()
+
 
         manager_snap = manager_snapshot
         worker_snap = worker_snapshot
 
         print('--------------------------------------')
-        print('End of episode: ', ep)
-        # print('Updated worker and manager snapshots:')
-        # print('Manager snapshot: ', manager_snap)
-        # print('Worker snapshot: ', worker_snap)
+        print(f'{red}END OF CURRENT EPISODE: ', episode, f'{reset}')
         print('--------------------------------------')
 
     print('End of training')
@@ -292,7 +346,7 @@ def test(args):
     volume_bbox, bbox_order = env.order_by_bbox_volume(item_ids)
 
     # initialize tester
-    tester = Tester(file_snapshot_manager='snapshots/manager_network_1.pth',file_snapshot_worker='snapshots/worker_network_1.pth', force_cpu=False, K=args.k_obj)
+    tester = Tester(file_snapshot_manager='snapshots/models/manager_network_1.pth',file_snapshot_worker='snapshots/models/worker_network_1.pth', force_cpu=False, K=args.k_obj)
 
     print('--------------------------------------')
     print('Tester initialized')
@@ -428,19 +482,19 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
-    #parser.add_argument('--is_sim', dest='is_sim', action='store', default=True)
     parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
     parser.add_argument('--obj_folder_path',  action='store', default='objects/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_obj', dest='k_obj', action='store', default=10) # number of objects to load
+    parser.add_argument('--k_max', action='store', default=3) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=2) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
-    parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=None) # path to the manager network snapshot
-    parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=None) # path to the worker network snapshot
-    parser.add_argument('--episodes', action='store', default=10000) # number of episodes
-    parser.add_argument('--load_snapshot_manager', dest='load_snapshot_manager', action='store', default='True') # Load snapshot of the manager network
-    parser.add_argument('--load_snapshot_worker', dest='load_snapshot_worker', action='store', default='True') # Load snapshot of the worker network
+    parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=f'snapshots/models/worker_network_episode_0_epoch_1.pth') # path to the manager network snapshot
+    parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=f'snapshots/models/worker_network_episode_7_epoch_10.pth') # path to the worker network snapshot
+    parser.add_argument('--new_episodes', action='store', default=10000) # number of episodes
+    parser.add_argument('--load_snapshot_manager', dest='load_snapshot_manager', action='store', default=True) # Load snapshot of the manager network
+    parser.add_argument('--load_snapshot_worker', dest='load_snapshot_worker', action='store', default=True) # Load snapshot of the worker network
 
     args = parser.parse_args()
     
