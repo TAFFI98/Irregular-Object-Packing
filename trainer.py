@@ -4,22 +4,7 @@ Created on  Apr 3 2024
 
 @author: Taffi
 """
-# ANSI escape sequences for colors
-black = "\033[1;30m"
-red = "\033[1;31m"
-green = "\033[1;32m"
-green_light = "\033[0;32m"
-yellow = "\033[0;33m"
-blue = "\033[1;34m"
-blue_light = "\033[0;34m"
-purple = "\033[1;35m"
-cyan = "\033[0;36m"
-white = "\033[1;37m"
-red_light = "\033[0;31m"
-# ANSI escape sequence for bold text
-bold = "\033[1m"
-# ANSI escape sequence to reset text formatting
-reset = "\033[0m"
+from fonts_terminal import *
 import os
 import time
 import glob
@@ -358,16 +343,17 @@ class Trainer(object):
 
             # Pack chosen item with predicted pose
             target_euler = [r,p,y]
-            #target_euler = [0,0,0] # JUST TO DEBUG
             # Compute z coordinate,
-            _,Hb_selected_obj, obj_length, obj_width = env.item_hm(chosen_item_index, target_euler)
-
+            _,Hb_selected_obj, obj_length, obj_width, offsets = env.item_hm(chosen_item_index, target_euler)
+            offset_pointminz_COM = offsets[4]
             # Uncomment to visualize the heightmap of the predicted pose of the object and the difference between the heightmap of the box and the object
             
             #env.visualize_object_heightmaps(Hb_selected_obj, None, target_euler, only_top = True)
             #env.visualize_object_heightmaps_3d(BoxHeightMap-Hb_selected_obj, None, target_euler, only_top = True)
             
-            z = env.get_z(BoxHeightMap, Hb_selected_obj, pixel_x, pixel_y, obj_length, obj_width)
+            z_lowest_point = env.get_z(BoxHeightMap, Hb_selected_obj, pixel_x, pixel_y, obj_length, obj_width,)
+            z = z_lowest_point + offset_pointminz_COM
+            
             target_pos = [pixel_x * env.box_size[0]/env.resolution,pixel_y * env.box_size[1]/env.resolution, z] # m
             transform = np.empty(6,)
             transform[0:3] = target_euler
@@ -376,71 +362,41 @@ class Trainer(object):
             print(f'{yellow}Check packing validity for chosen item with index', chosen_item_index, 'with candidate predicted: \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
             
             # Pack item
-            BoxHeightMap, stability_of_packing, old_pos, old_quater = env.pack_item(chosen_item_index , transform)
-            
-            # Check collision with box margins 
-            BBOX_object = env.compute_object_bbox(chosen_item_index)
-            
-            # Show the bounding box of the object to check collisions visullay
-            bbox_obj_line_ids = env.drawAABB(BBOX_object, width=1)
-            collision = self.bounding_box_collision(env.bbox_box, BBOX_object)
+            BoxHeightMap, stability_of_packing, old_pos, old_quater, collision, limits_obj_line_ids, height_exceeded_before_pack = env.pack_item_check_collision(chosen_item_index , transform, offsets)
 
             # Use the collision result
             if collision:
                 print(f'{red_light}Collision detected!{reset}')
                 # Place the object back to its original position since this predicted pose would not be valid
-                env.unpack_item(chosen_item_index, old_pos, old_quater)
-                # Remove the bounding box of the object
-                # Restore the position of the box since the invalid packing could have modified it
-                env.removeAABB(bbox_obj_line_ids)
+                env.removeAABB(limits_obj_line_ids)
+                BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
+                continue
+            if height_exceeded_before_pack:
+                print(f'{red_light}Box height exceeded before packing action!{reset}')
+                # Place the object back to its original position since this predicted pose would not be valid
+                env.removeAABB(limits_obj_line_ids)
+                BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
                 continue
             else:
                 print(f'{green_light}No collision detected.{reset}')
                 # Check if the height of the box is exceeded
-                height_exceeded = self.check_height_exceeded(box_heightmap = BoxHeightMap, box_height = box_height)
+                height_exceeded = env.check_height_exceeded(box_heightmap = BoxHeightMap, box_height = box_height)
                 if height_exceeded:
-                    print(f'{red_light}Box height exceeded!{reset}')
+                    print(f'{red_light}Box height exceeded after packing action!{reset}')
                     # place the object back to its original position since this predicted pose would not be valid
-                    env.unpack_item(chosen_item_index, old_pos, old_quater)
-                    # Restore the position of the box since the invalid packing could have modified it
-                    env.removeAABB(bbox_obj_line_ids)
+                    env.removeAABB(limits_obj_line_ids)
+                    BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
                     continue
                 else:
                     print(f'{green_light}Box height not exceeded.{reset}')
                     print('--------------------------------------')
                     print(f'{green}Packed chosen item!! {reset}')
                     print(f'{green}with pose: \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')                   
-                    print(f'{red_light}Is the placement stable?', stability_of_packing,f'{reset}')
                     print('--------------------------------------')
-                    env.removeAABB(bbox_obj_line_ids)
+                    print(f'{purple_light}>Stability is:', stability_of_packing,f'{reset}')
+                    env.removeAABB(limits_obj_line_ids)
                     return indices_rp, indices_y, pixel_x, pixel_y, BoxHeightMap, stability_of_packing
         
-    def bounding_box_collision(self, box1, box2):
-        '''
-        box1: bounding box of the box
-        box2: bounding box of the object
-        
-        output: boolean indicating if the bounding box of the object is entirely inside the bounding box of the box (sensibility: mm)
-        '''
-        # Each box is a tuple of (min_x, min_y, min_z, max_x, max_y, max_z)
-        min_x1, min_y1, _, max_x1, max_y1, _ = [round(x, 3) for x in box1]
-        min_x2, min_y2, max_x2, max_y2 = [round(x, 3) for x in [box2[0,0],box2[0,1],box2[1,0],box2[1,1]]]
-
-        # Check if box2 is entirely inside box1
-        return not (min_x1 <= min_x2 and max_x1 >= max_x2 and
-                min_y1 <= min_y2 and max_y1 >= max_y2 )
-
-    def check_height_exceeded(self,box_heightmap, box_height):
-        '''
-        box_heightmap: heightmap of the box
-        box_height: height of the box
-        output: boolean indicating if the height of the box is exceeded
-        '''
-        # Compute the new heightmap after placing the object
-        max_z = box_heightmap.max()
-
-        # Check if any height in the new heightmap exceeds the box height
-        return max_z > box_height
     
     def save_snapshot(self, max_snapshots=5):
         """

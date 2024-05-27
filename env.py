@@ -1,25 +1,5 @@
-# -*- coding: utf-8 -*-
-"""
-Created on  Apr 3 2024
 
-@author: Taffi
-"""
-# ANSI escape sequences for colors
-black = "\033[1;30m"
-red = "\033[1;31m"
-green = "\033[1;32m"
-green_light = "\033[0;32m"
-yellow = "\033[0;33m"
-blue = "\033[1;34m"
-purple = "\033[1;35m"
-cyan = "\033[0;36m"
-white = "\033[1;37m"
-red_light = "\033[0;31m"
-# ANSI escape sequence for bold text
-bold = "\033[1m"
-# ANSI escape sequence to reset text formatting
-reset = "\033[0m"
-
+from fonts_terminal import *
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -83,7 +63,6 @@ class Env(object):
         # -- Initialize the stability tresholds
         self.stability_treshold_position = 0.02
         self.stability_treshold_orientation = np.pi*2/3
-
         
     def create_box(self, size, pos):
         '''
@@ -152,7 +131,7 @@ class Env(object):
         xpos = np.arange(sep/2,self.box_size[0]+sep/2,sep)
         ypos = np.arange(sep/2,self.box_size[1]+sep/2,sep)
         xscan, yscan = np.meshgrid(xpos,ypos)
-        ScanArray = np.array([xscan.reshape(-1),yscan.reshape(-1)])
+        ScanArray = np.array([yscan.reshape(-1),xscan.reshape(-1)])
         Start = np.insert(ScanArray,2,self.box_size[2],0).T
         End = np.insert(ScanArray,2,0,0).T
         RayScan = np.array(p.rayTestBatch(Start, End),dtype=object)
@@ -272,13 +251,37 @@ class Env(object):
         plt.tight_layout()
         plt.show()
 
+    def compute_object_limits(self, pos, offsets):
+        '''
+        item_id: integer
+        output: list of 4 elements [min_x_global, max_x_global, min_y_global, max_y_global]
+        '''
+
+        offset_pointminx_COM, offset_pointmaxx_COM, offset_pointminy_COM, offset_pointmaxy_COM, offset_pointminz_COM, offset_pointmaxz_COM  =   offsets[0], offsets[1], offsets[2], offsets[3], offsets[4], offsets[5]
+
+        min_x_global = pos[0] - offset_pointminx_COM
+        max_x_global = pos[0] + offset_pointmaxx_COM
+        
+        min_y_global = pos[1] - offset_pointminy_COM
+        max_y_global = pos[1] + offset_pointmaxy_COM
+
+        min_z_global = pos[2] - offset_pointminz_COM
+        max_z_global = pos[2] + offset_pointmaxz_COM
+
+        object_limits = [min_x_global, max_x_global, min_y_global, max_y_global, min_z_global, max_z_global]
+
+        return object_limits
+    
     def item_hm(self, item_id, orient):
         '''
         item_id: integer
         orient: list of 3 elements [roll, pitch, yaw]
-        output: 2 numpy arrays of shape (resolution, resolution) - bottom and top heightmaps
-        
-        Function to compute the item (with a certain item_id) heightmap
+        output: numpy array of shape (resolution, resolution), numpy array of shape (resolution, resolution), float, float, float
+        Ht: numpy array of shape (resolution, resolution) representing the top heightmap
+        Hb: numpy array of shape (resolution, resolution) representing the bottom heightmap
+        obj_length: float representing the length of the object
+        obj_width: float representing the width of the object
+        offsets: list of 6 elements [offset_pointminx_COM, offset_pointmaxx_COM, offset_pointminy_COM, offset_pointmaxy_COM, offset_pointminz_COM, offset_pointmaxz_COM]
         '''
         
         # Stores the item original position and orientation
@@ -286,13 +289,8 @@ class Env(object):
         quater = p.getQuaternionFromEuler(orient)
         
         # Set new orientation for the item
-        p.resetBasePositionAndOrientation(item_id, [1, 1, 1], quater)       
+        p.resetBasePositionAndOrientation(item_id,[1,1,1],quater)       
         
-        # Extracts the bounding box of the item
-        AABB = p.getAABB(item_id)                                      
-        obj_length = AABB[1][0] - AABB[0][0]
-        obj_width = AABB[1][1] - AABB[0][1]
-
         _, vertices = p.getMeshData(bodyUniqueId=item_id, linkIndex=-1)
 
         # vertices is a list of tuples, each representing a vertex of the mesh.
@@ -302,20 +300,31 @@ class Env(object):
         rotation_matrix = np.array(p.getMatrixFromQuaternion(quater)).reshape(3, 3)
 
         # Transform the vertices to the global reference frame
-        global_vertices = [np.dot(rotation_matrix, vertex) + np.array([1, 1, 1]) for vertex in vertices]
+        global_vertices = [np.dot(rotation_matrix, vertex) + np.array([1,1,1]) for vertex in vertices]
 
-        # Now you can find the maximum z value in the global reference frame
-        min_z_global = min(vertex[2] for vertex in global_vertices)
-        max_z_global = max(vertex[2] for vertex in global_vertices)
+        # Extract the min and max values of the global vertices
+        min_z_global = min(vertex[2] for vertex in global_vertices)        
         min_x_global = min(vertex[0] for vertex in global_vertices)
-        max_x_global = max(vertex[0] for vertex in global_vertices)
         min_y_global = min(vertex[1] for vertex in global_vertices)
+        max_z_global = max(vertex[2] for vertex in global_vertices)        
+        max_x_global = max(vertex[0] for vertex in global_vertices)
         max_y_global = max(vertex[1] for vertex in global_vertices)
 
-        # Get the center of mass of the item
-        com_pos, _ = p.getBasePositionAndOrientation(item_id)
-        com_height = com_pos[-1]- min_z_global 
+        # Extracts the boundingbox of the item
+        AABB = p.getAABB(item_id)
+        offset_pointminz_COM = 1 - min_z_global
+        offset_pointmaxz_COM = max_z_global -  1
 
+        offset_pointminx_COM = 1 - min_x_global
+        offset_pointmaxx_COM = max_x_global -1
+
+        offset_pointminy_COM = 1 - min_y_global
+        offset_pointmaxy_COM = max_y_global -1
+
+        obj_length = offset_pointmaxx_COM + offset_pointminx_COM
+        obj_width = offset_pointmaxy_COM + offset_pointminy_COM
+
+        # Computation of a grid of points within the bounding box of the item. 
         # Computation of a grid of points within the specified box size
         sep = self.box_size[0] / self.resolution
         xpos = np.arange(sep / 2, self.box_size[0] + sep / 2, sep)
@@ -327,35 +336,28 @@ class Env(object):
         y_offset = (self.box_size[1] - obj_width) / 2
         xscan += min_x_global - x_offset
         yscan += min_y_global - y_offset
-        
+
         # Ray casting from the top to the bottom and from the bottom to the top of the item's bounding box 
         # to find the height of points on the surface of the bounding box.
-        ScanArray = np.array([xscan.reshape(-1), yscan.reshape(-1)])
-        Top = np.insert(ScanArray, 2, max_z_global, axis=0).T
-        Down = np.insert(ScanArray, 2, min_z_global, axis=0).T
-        RayScanTD = np.array(p.rayTestBatch(Top, Down), dtype=object)
-        RayScanDT = np.array(p.rayTestBatch(Down, Top), dtype=object)
+        ScanArray = np.array([xscan.reshape(-1),yscan.reshape(-1)])
+        Top = np.insert(ScanArray,2,max_z_global,axis=0).T
+        Down = np.insert(ScanArray,2,min_z_global,axis=0).T
+        RayScanTD = np.array(p.rayTestBatch(Top, Down),dtype=object)
+        RayScanDT = np.array(p.rayTestBatch(Down, Top),dtype=object)
         
         # Computes the heights of points on the top (Ht) and bottom (Hb) surfaces of the bounding box based on the results of the ray casting.
-        Ht = (1 - RayScanTD[:, 2]) * (max_z_global - min_z_global)
-        RayScanDT = RayScanDT[:, 2]
-        RayScanDT[RayScanDT == 1] = np.inf
-        Hb = RayScanDT * (max_z_global - min_z_global)
-        # Replace infinity values in Hb with zero
-        Hb[Hb == np.inf] =  0
+        Ht = (1-RayScanTD[:,2])*(max_z_global - min_z_global)
+        Hb = (1-RayScanDT[:,2])*(max_z_global - min_z_global)
+
+        Ht = Ht.astype('float64').reshape(len(ypos),len(xpos)).T
+        Hb = Hb.astype('float64').reshape(len(ypos),len(xpos)).T
         
-        # Adjust Hb to have zero at the height of the center of mass
-        Hb = Hb - com_height
-        
-        Ht = Ht.astype('float64').reshape(len(ypos), len(xpos)).T
-        Hb = Hb.astype('float64').reshape(len(ypos), len(xpos)).T
-        
+
+        offsets = [offset_pointminx_COM, offset_pointmaxx_COM, offset_pointminy_COM, offset_pointmaxy_COM, offset_pointminz_COM, offset_pointmaxz_COM]
+
         # Resets the initial orientation for the item
-        p.resetBasePositionAndOrientation(item_id, old_pos, old_quater)
-        return Ht, Hb, obj_length, obj_width
-    
-
-
+        p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
+        return Ht,Hb, obj_length, obj_width, offsets 
     
     def order_by_bbox_volume(self,items_ids):
         '''
@@ -446,7 +448,7 @@ class Env(object):
         p.resetBasePositionAndOrientation(item,old_pos,old_quater)
         return volume
     
-    def pack_item(self, item_id, transform):
+    def pack_item_check_collision(self, item_id, transform, offsets):
         '''
         item_id: integer representing the id of the object
         transform: list of 6 elements [target_euler, target_pos]
@@ -469,6 +471,13 @@ class Env(object):
         target_euler = transform[0:3]
         target_pos = transform[3:6]
         new_quater = p.getQuaternionFromEuler(target_euler)
+ 
+        # Check collision with box margins 
+        limits_object = self.compute_object_limits(target_pos, offsets)
+            
+        # Show the bounding box of the object to check collisions visullay
+        limits_obj_line_ids = self.draw_predicted_pose_volume(limits_object)
+        collision, height_exceeded_before_pack = self.bounding_box_collision(self.bbox_box, limits_object)
 
         # Set the new position and orientation for the item
         p.resetBasePositionAndOrientation(item_id, target_pos, new_quater)
@@ -477,6 +486,8 @@ class Env(object):
         for i in range(500):
             p.stepSimulation()
             time.sleep(1./240.)
+        
+        AABB_after_pack = self.drawAABB( self.compute_object_bbox(item_id))
         curr_pos, curr_quater = p.getBasePositionAndOrientation(item_id)
         curr_euler = np.array(p.getEulerFromQuaternion(curr_quater))
         
@@ -491,11 +502,40 @@ class Env(object):
         # Update the packed and unpacked lists
         self.packed.append(item_id)
         self.unpacked.remove(item_id)
-        
+        self.removeAABB(AABB_after_pack)
         # Compute the new box heightmap
         NewBoxHeightMap = self.box_heightmap()
+        
+        return NewBoxHeightMap, stability, old_pos, old_quater,  collision, limits_obj_line_ids, height_exceeded_before_pack
+    
+    def check_height_exceeded(self,box_heightmap, box_height):
+        '''
+        box_heightmap: heightmap of the box
+        box_height: height of the box
+        output: boolean indicating if the height of the box is exceeded
+        '''
+        # Compute the new heightmap after placing the object
+        max_z = box_heightmap.max()
 
-        return NewBoxHeightMap, stability, old_pos, old_quater
+        # Check if any height in the new heightmap exceeds the box height
+        return max_z > box_height
+    
+    def bounding_box_collision(self, box_box, box_obj):
+        '''
+        box1: bounding box of the box
+        box2: bounding box of the object
+        
+        output: boolean indicating if the bounding box of the object is entirely inside the bounding box of the box (sensibility: mm)
+        '''
+        # Each box is a tuple of (min_x, min_y, min_z, max_x, max_y, max_z)
+        min_x_box, min_y_box, _, max_x_box, max_y_box, box_height = [round(x, 3) for x in box_box]
+        min_x_obj, max_x_obj, min_y_obj, max_y_obj, max_z_obj = round(box_obj[0], 3), round(box_obj[1], 3), round(box_obj[2], 3), round(box_obj[3], 3), round(box_obj[5], 3)
+
+        # Check if box2 is entirely inside box1
+        collision = not (min_x_box <= min_x_obj and max_x_box >= max_x_obj and min_y_box <= min_y_obj and max_y_box >= max_y_obj )
+        height_exceeded_before_pack = not (max_z_obj <= box_height)
+
+        return collision, height_exceeded_before_pack
     
     def unpack_item(self, item_id, old_pos, old_quater):
         '''
@@ -508,6 +548,8 @@ class Env(object):
         p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
         self.packed.remove(item_id)
         self.unpacked.append(item_id)
+        NewBoxHeightmap = self.box_heightmap()
+        return NewBoxHeightmap
          
     def drawAABB(self, aabb, width=1):
         '''
@@ -569,6 +611,56 @@ class Env(object):
         line_id = p.addUserDebugLine(f, t, [1, 1, 1], width)
         line_ids.append(line_id)
         return line_ids
+
+    def draw_predicted_pose_volume(self, vertices, line_color=[1, 0, 0], line_width=2):
+        '''
+        vertices: list of 6 elements [X1, X2, Y1, Y2, Z1, Z2]
+        line_color: RGB color of the line
+        line_width: width of the line
+        '''
+        X1, X2, Y1, Y2, Z1, Z2 = vertices
+
+        # Define the four corners of the rectangle
+        point1 = [X1, Y1, Z1]
+        point2 = [X2, Y1, Z1]
+        point3 = [X2, Y2, Z1]
+        point4 = [X1, Y2, Z1]
+
+        # Draw the four sides of the rectangle
+        line_ids = []
+        line_id = p.addUserDebugLine(point1, point2, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point2, point3, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point3, point4, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point4, point1, line_color, line_width)
+        line_ids.append(line_id)
+
+        # Define the four corners of the rectangle
+        point1_bis = [X1, Y1, Z2]
+        point2_bis = [X2, Y1, Z2]
+        point3_bis = [X2, Y2, Z2]
+        point4_bis = [X1, Y2, Z2]
+
+        # Draw the four sides of the rectangle
+        line_id = p.addUserDebugLine(point1_bis, point2_bis, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point2_bis, point3_bis, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point3_bis, point4_bis, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point4_bis, point1_bis, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point1_bis, point1, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point2_bis, point2, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point3_bis, point3, line_color, line_width)
+        line_ids.append(line_id)
+        line_id = p.addUserDebugLine(point4_bis, point4, line_color, line_width)
+        line_ids.append(line_id)
+        return line_ids      
 
     def removeAABB(self, line_ids):
         '''
@@ -646,7 +738,7 @@ class Env(object):
         for i,_ in enumerate(item_in_box):
             total_volume += item_volumes[i]
         box_volume = np.max(box_hm)*self.box_size[0]*self.box_size[1]
-        print('Compactness is: ', total_volume/box_volume)
+        print(f'{purple_light}>Compactness is: ', total_volume/box_volume,f'{exit}')
         return total_volume/box_volume
 
     def Pyramidality(self, item_in_box, item_volumes, box_hm):
@@ -662,7 +754,7 @@ class Env(object):
         for i,item in enumerate(item_in_box):
             total_volume += item_volumes[i]
         used_volume = np.sum(box_hm)
-        print('Piramidality is: ', total_volume/used_volume)
+        print(f'{purple_light}Piramidality is: ', total_volume/used_volume, f'{exit}')
         return total_volume/used_volume
     
     def Objective_function(self, item_in_box, item_volumes, box_hm, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25):
@@ -694,7 +786,7 @@ class Env(object):
         print('------------------Reward  is: ', reward,'  ------------------')
         return reward
     
-    def get_z(self,Hc, Hb, pixel_x, pixel_y, obj_length, obj_width):
+    def get_z(self, Hc, Hb, pixel_x, pixel_y, obj_length, obj_width):
         '''
         Hc: numpy array of shape (resolution, resolution) representing the current box heightmap
         Hb: numpy array of shape (resolution, resolution) representing the heightmap of the item
@@ -705,11 +797,28 @@ class Env(object):
         Function to compute the maximum z-value of the item in the box due to gravity
         '''
 
-        s_range = range(-Hb.shape[0]//2, Hb.shape[0]//2)
-        t_range = range(-Hb.shape[1]//2, Hb.shape[1]//2)
+        s_range = range(0, Hb.shape[0])
+        t_range = range(0, Hb.shape[1])
         max_z = 0
         ss_range = range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)
         tt_range = range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)
+
+        x_range = [pixel_x + i for i in range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)]
+        y_range = [pixel_y + i for i in range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)]
+
+
+        # Display predicted pose
+        # fig, axs = plt.subplots(1, 1, figsize=(10, 5))
+        # axs.imshow(Hc, cmap='viridis', origin='lower')
+        # axs.plot(pixel_x, pixel_y, 'ro')
+        # axs.plot([max(0,x_range[0]), min(Hb.shape[0],x_range[-1])], [pixel_y, pixel_y], 'r-')
+        # axs.plot( [pixel_x, pixel_x],[max(0,y_range[0]), min(Hb.shape[1],y_range[-1])], 'r-')
+        # axs.set_xlabel('X')
+        # axs.set_ylabel('Y')
+        # plt.tight_layout()
+        # plt.show()
+        
+
         for s in s_range:
                 for t in t_range:
                         for ss in ss_range:
@@ -717,17 +826,8 @@ class Env(object):
                                 if 0 <= pixel_x+ss < Hc.shape[0] and 0 <= pixel_y+tt < Hc.shape[1]:
                                     z = Hc[pixel_x+ss, pixel_y+tt] - Hb[s, t]
                                     max_z = max(max_z, z)
+                        
         return max_z
-
-    def is_box_full(heightmap, max_height):
-        '''
-        heightmap: numpy array of shape (resolution, resolution) representing the box heightmap
-        max_height: float representing the maximum height of the box
-        output: boolean
-        
-        Function to check if the box is full
-        '''
-        return np.all(heightmap == max_height)
     
     def euler_angle_distance(self, curr_euler, target_euler):
         """

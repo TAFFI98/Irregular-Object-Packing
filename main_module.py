@@ -1,19 +1,4 @@
-# ANSI escape sequences for colors
-black = "\033[1;30m"
-red = "\033[1;31m"
-green = "\033[1;32m"
-yellow = "\033[1;33m"
-blue = "\033[1;34m"
-purple = "\033[1;35m"
-cyan = "\033[1;36m"
-white = "\033[1;37m"
-purple_light = "\033[0;35m"
-
-# ANSI escape sequence for bold text
-bold = "\033[1m"
-# ANSI escape sequence to reset text formatting
-reset = "\033[0m"
-
+from fonts_terminal import *
 import time
 import os
 import random
@@ -132,7 +117,7 @@ def train(args):
 
         #-- Load items 
         values = np.arange(start=0, stop=100+1, step=1)
-        #item_numbers = np.array([10]) #to debug
+        #item_numbers = np.array([17,19]) #to debug
         item_numbers =  np.random.choice(values, K_obj, replace=False)
         
         item_ids = env.load_items(item_numbers)
@@ -166,16 +151,16 @@ def train(args):
             unpacked = env.unpacked
             if len(unpacked) == 0:
                 print(f"{bold}{red}NO MORE ITEMS TO PACK --> END OF EPISODE{reset}") 
-                break
+                continue
             else:
                 print(f"{bold}There are still ", len(unpacked), f" items to be packed.{reset}")
 
             print(' --- Checking if next item is packable by maximum height --- ')          
             max_Heightmap_box = np.max(heightmap_box)
             is_box_full = max_Heightmap_box > box_size[2] - eps_height
-            if  is_box_full: 
+            if is_box_full: 
                 print(f"{bold}{red}BOX IS FULL --> END OF EPISODE{reset}")
-                break
+                continue
             else:
                 print(f"{bold}Max box height not reached yet.{reset}")
 
@@ -184,15 +169,15 @@ def train(args):
             if args.stage == 1:
                 # pack largest object first
                 print('---------------------------------------')
-                print(f"{yellow}SELECTION: Object selection according to largest bounding box volume{reset}")
+                print(f"{bold}\n1. SELECTION: Object selection according to largest bounding box volume{reset}")
                 next_obj = bbox_order[i]
-                print(f"{bold}{green}Selected object id: ", next_obj, f"{reset}")
+                print("Selected object id: ", next_obj)
 
             elif args.stage == 2:
 
                 # select k objects with the largest bounding box volume
                 print('---------------------------------------')
-                print(f"{yellow} SELECTION: Object selection according to Manager Network Selection{reset}")
+                print(f"{yellow}\n1. SELECTION: Object selection according to Manager Network Selection{reset}")
                 
                 k_sort = args.k_sort 
 
@@ -218,9 +203,9 @@ def train(args):
                     item_views = []
 
                     for view in principal_views.values():
-                        Ht,_,obj_length,obj_width  = env.item_hm(unpacked_ids[i], view)
-                        #env.visualize_object_heightmaps(Ht,_ only_top = True )
-                        #env.visualize_object_heightmaps_3d(Ht,_, only_top = True )
+                        Ht,_,obj_length,obj_width, _  = env.item_hm(unpacked_ids[i], view)
+                        #env.visualize_object_heightmaps(Ht, _, view, only_top = True)
+                        #env.visualize_object_heightmaps_3d(Ht, _, view, only_top = True)
                         item_views.append(Ht)
 
                     item_views = np.array(item_views)
@@ -250,7 +235,7 @@ def train(args):
 
                     #print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
                     
-                    Ht, Hb, _, _ = env.item_hm(next_obj, orient)
+                    Ht, Hb, _, _, _ = env.item_hm(next_obj, orient)
                     
                     # --- Uncomment to visulize Heightmaps
                     #env.visualize_object_heightmaps(Ht, Hb, orient, only_top = False)
@@ -270,8 +255,8 @@ def train(args):
 
             # forward pass into worker to get Q-values for placement
             Q_values = trainer.forward_worker_network(env, roll_pitch_angles, input_placement_network_1, input_placement_network_2)
-            print(f"{yellow}PLACEMENT: Computing packing pose of the selected object with placement network{reset}")
-            print("Q values computed for every candidate pose.")
+            print(f"{bold}\n2. PLACEMENT: Computing packing pose of the selected object with placement network{reset}")
+            print("Q values computed for every candidate pose.\n")
 
             # Uncomment to plot Q-values
             # Qvisual = trainer.visualize_Q_values(Q_values, show=True)
@@ -420,7 +405,7 @@ def test(args):
                     item_views = []
 
                     for view in principal_views.values():
-                        Ht,_,obj_length,obj_width  = env.item_hm(unpacked_ids[i], view)
+                        Ht,_,_,_ ,_ = env.item_hm(unpacked_ids[i], view)
                         #env.visualize_object_heightmaps(id_, view, only_top = True )
                         #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
                         item_views.append(Ht)
@@ -451,7 +436,7 @@ def test(args):
                         roll_pitch_angles.append(np.array([r,p]))
 
                         orient = [r,p,0]
-                        Ht, Hb, _, _ = env.item_hm(next_obj, orient)
+                        Ht, Hb, _, _ ,_= env.item_hm(next_obj, orient)
                         
                         # add one dimension to concatenate Ht and Hb
                         Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
@@ -487,14 +472,14 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=3) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=2) # min number of objects to load
+    parser.add_argument('--k_max', action='store', default=13) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=10) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
     parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=f'snapshots/models/worker_network_episode_0_epoch_1.pth') # path to the manager network snapshot
     parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=f'snapshots/models/worker_network_episode_7_epoch_10.pth') # path to the worker network snapshot
     parser.add_argument('--new_episodes', action='store', default=10000) # number of episodes
-    parser.add_argument('--load_snapshot_manager', dest='load_snapshot_manager', action='store', default=True) # Load snapshot of the manager network
-    parser.add_argument('--load_snapshot_worker', dest='load_snapshot_worker', action='store', default=True) # Load snapshot of the worker network
+    parser.add_argument('--load_snapshot_manager', dest='load_snapshot_manager', action='store', default=False) # Load snapshot of the manager network
+    parser.add_argument('--load_snapshot_worker', dest='load_snapshot_worker', action='store', default=False) # Load snapshot of the worker network
 
     args = parser.parse_args()
     
