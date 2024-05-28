@@ -15,8 +15,6 @@ from trainer import Trainer
 from tester import Tester
 from env import Env
 import logging
-from logger import Logger
-import utils
 
 def train(args):
 
@@ -467,13 +465,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
-    parser.add_argument('--is_testing', dest='is_testing', action='store', default=False)
     parser.add_argument('--obj_folder_path',  action='store', default='objects/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=13) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=10) # min number of objects to load
+    parser.add_argument('--k_max', action='store', default=10) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
     parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=f'snapshots/models/worker_network_episode_0_epoch_1.pth') # path to the manager network snapshot
     parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=f'snapshots/models/worker_network_episode_7_epoch_10.pth') # path to the worker network snapshot
@@ -485,5 +482,5 @@ if __name__ == '__main__':
     
     # --------------- Start Train ---------------
     train(args) 
-     # --------------- Start Test ---------------   
+     # --------------- Start Test ---------------   NOT ready yet
     #test(args)
