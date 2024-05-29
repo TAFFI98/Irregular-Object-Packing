@@ -20,6 +20,7 @@ from scipy import ndimage
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import gc
 
 class Trainer(object):
     def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot_worker = None, file_snapshot_manager = None, load_snapshot_worker = False, load_snapshot_manager = False ,K = 20, n_y = 16, epoch = 0, episode = 0):
@@ -194,6 +195,8 @@ class Trainer(object):
             self.optimizer_worker.step()
 
             self.epoch = self.epoch+1
+            if self.use_cuda:
+                torch.cuda.empty_cache()
             return loss_value
 
     def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images = 4):
@@ -324,42 +327,56 @@ class Trainer(object):
         '''
         # Flatten the Q_values tensor and sort it in descending order
         Q_values_flat = Q_values.view(-1)
+        Q_size = Q_values.size()
         sorted_values, sorted_indices = torch.sort(Q_values_flat, descending=True)
         _, _, box_height = env.box_size
-        # Iterate over the sorted indices
-        for i in sorted_indices:
-            # Unravel the index
-            index = torch.unravel_index(i, Q_values.size())
 
+        del(Q_values,Q_values_flat,sorted_values)
+        gc.collect()
+        # Determine the max number of tentatives to pack the object for each batch
+        tentatives = 20
+        tentatives_sets= 0
+        # Iterate over the batches
+        # Calculate the start and end indices for this batch
+        start_index = tentatives_sets * tentatives
+        end_index = min((tentatives_sets + 1) * tentatives, len(sorted_indices))
+
+        # Get the batch of indices
+        batch_indices = sorted_indices[start_index:end_index]
+        del(sorted_indices)
+        gc.collect()
+        # Unravel the indices in this batch
+        for k,i in enumerate(batch_indices):
+            index = torch.unravel_index(i, Q_size)
             # Extract indices along each dimension
             indices_y = int(index[1])
             indices_rp = int(index[2])
             pixel_x = int(index[3])
             pixel_y = int(index[4])
-
+            del(index)
+            gc.collect()
             r = float(roll_pitch_angles[indices_rp,0])
             p = float(roll_pitch_angles[indices_rp,1])
             y = float(indices_y * (360 / self.n_y))
 
             # Pack chosen item with predicted pose
             target_euler = [r,p,y]
-            # Compute z coordinate,
+            # Compute z coordinate
             _,Hb_selected_obj, obj_length, obj_width, offsets = env.item_hm(chosen_item_index, target_euler)
             offset_pointminz_COM = offsets[4]
             # Uncomment to visualize the heightmap of the predicted pose of the object and the difference between the heightmap of the box and the object
-            
             #env.visualize_object_heightmaps(Hb_selected_obj, None, target_euler, only_top = True)
             #env.visualize_object_heightmaps_3d(BoxHeightMap-Hb_selected_obj, None, target_euler, only_top = True)
-            
-            z_lowest_point = env.get_z(BoxHeightMap, Hb_selected_obj, pixel_x, pixel_y, obj_length, obj_width,)
+            z_lowest_point = env.get_z(BoxHeightMap, Hb_selected_obj, pixel_x, pixel_y, obj_length, obj_width)
+            del(Hb_selected_obj, BoxHeightMap)
+            gc.collect()
             z = z_lowest_point + offset_pointminz_COM
-            
             target_pos = [pixel_x * env.box_size[0]/env.resolution,pixel_y * env.box_size[1]/env.resolution, z] # m
             transform = np.empty(6,)
             transform[0:3] = target_euler
             transform[3:6] = target_pos
             print('----------------------------------------')
-            print(f'{yellow}Check packing validity for chosen item with index', chosen_item_index, 'with candidate predicted: \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
+            print(f'{yellow}Check packing validity for chosen item with index', chosen_item_index, 'with candidate pose n ',k+1,': \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
             
             # Pack item
             BoxHeightMap, stability_of_packing, old_pos, old_quater, collision, limits_obj_line_ids, height_exceeded_before_pack = env.pack_item_check_collision(chosen_item_index , transform, offsets)
@@ -377,7 +394,7 @@ class Trainer(object):
                 env.removeAABB(limits_obj_line_ids)
                 BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
                 continue
-            else:
+            elif not collision and not height_exceeded_before_pack:
                 print(f'{green_light}No collision detected.{reset}')
                 # Check if the height of the box is exceeded
                 height_exceeded = env.check_height_exceeded(box_heightmap = BoxHeightMap, box_height = box_height)
@@ -387,7 +404,7 @@ class Trainer(object):
                     env.removeAABB(limits_obj_line_ids)
                     BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
                     continue
-                else:
+                elif not height_exceeded:
                     print(f'{green_light}Box height not exceeded.{reset}')
                     print('--------------------------------------')
                     print(f'{green}Packed chosen item!! {reset}')
@@ -395,7 +412,12 @@ class Trainer(object):
                     print('--------------------------------------')
                     print(f'{purple_light}>Stability is:', stability_of_packing,f'{reset}')
                     env.removeAABB(limits_obj_line_ids)
-                    return indices_rp, indices_y, pixel_x, pixel_y, BoxHeightMap, stability_of_packing
+                    packed = True
+                    return indices_rp, indices_y, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed
+            
+        packed = False
+        return False, False, False, False, False, False, packed
+
         
     
     def save_snapshot(self, max_snapshots=5):

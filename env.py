@@ -7,6 +7,8 @@ import pybullet as p
 import time
 import pybullet_data
 import os, csv
+import random
+import gc
 
 class Env(object):
     def __init__(self, obj_dir, is_GUI = True, box_size = (0.4,0.4,0.3), resolution = 40):
@@ -35,25 +37,24 @@ class Env(object):
         
         if is_GUI:
             self.physicsClient = p.connect(p.GUI)
-
         else:
             self.physicsClient = p.connect(p.DIRECT)
-
         p.setGravity(0,0,-10)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.loadURDF('plane.urdf')
-
+        
         #-- Create packing box in simulation
-        wall_1_index = self.create_box([boxL,wall_width,boxH],[boxL/2,-wall_width/2,boxH/2])
-        wall_2_index = self.create_box([boxL,wall_width,boxH],[boxL/2,boxW+wall_width/2,boxH/2])
-        wall_3_index = self.create_box([wall_width,boxW,boxH],[-wall_width/2,boxW/2,boxH/2])
-        wall_4_index = self.create_box([wall_width,boxW,boxH],[boxL+wall_width/2,boxW/2,boxH/2])
+        wall_1_index = self.create_box([boxL,wall_width,boxH],[boxL/2,-(wall_width+0.002)/2,boxH/2])
+        wall_2_index = self.create_box([boxL,wall_width,boxH],[boxL/2,boxW+(wall_width+0.002)/2,boxH/2])
+        wall_3_index = self.create_box([wall_width,boxW,boxH],[-(wall_width+0.002)/2,boxW/2,boxH/2])
+        wall_4_index = self.create_box([wall_width,boxW,boxH],[boxL+(wall_width+0.002)/2,boxW/2,boxH/2])
         self.walls_indices = [wall_1_index, wall_2_index, wall_3_index, wall_4_index]
         
         #-- Set mass to 0 to avoid box movements
         for i in range(4):
             p.changeDynamics(self.walls_indices[i], -1, mass=0) # Set mass to 0 to avoid box movements
-
+        p.resetDebugVisualizerCamera(cameraDistance=1.0, cameraYaw=-180, cameraPitch=-89, cameraTargetPosition=[0.15,0.07,-0.04])
+        p.stepSimulation()
         #-- Initialize ids of the objects loaded in simulation
         self.loaded_ids = []
         #-- Initialize ids of the objects already packed
@@ -74,9 +75,9 @@ class Env(object):
         '''
         size = np.array(size)
         shift = [0, 0, 0]
-        color = [1,1,1,1]
+        beige = [144/255, 87/255, 35/255, 1]
         visualShapeId = p.createVisualShape(shapeType=p.GEOM_BOX,
-                                        rgbaColor=color,
+                                        rgbaColor=beige,
                                         visualFramePosition=shift,
                                         halfExtents = size/2)
         collisionShapeId = p.createCollisionShape(shapeType=p.GEOM_BOX,
@@ -107,8 +108,9 @@ class Env(object):
         for count, urdf_data in enumerate(urdf_info):
             if count in item_ids:
                 urdf_path = urdf_data['URDF Path']
-                print('-' ,urdf_path.split('/')[-2] , '(', urdf_path.split('/')[-3], ')')
-                loaded_id = p.loadURDF(urdf_path, [(count//5)/4+2.2, (count%5)/4+0.2, 0.1], flags=flags)
+                scale = random.uniform(0.8, 1.2)  # Generate a random scale factor
+                loaded_id = p.loadURDF(urdf_path, [(count//5)/4+2.2, (count%5)/4+0.2, 0.1], flags=flags, globalScaling=scale)
+                print('-' ,urdf_path.split('/')[-2] , '(', urdf_path.split('/')[-3], ', scale:', np.round(scale,3),')')
                 self.loaded_ids.append(loaded_id)
                 self.unpacked.append(loaded_id)
         return self.loaded_ids
@@ -121,7 +123,7 @@ class Env(object):
             p.removeBody(loaded)
         self.loaded_ids = []
         
-    def box_heightmap(self):
+    def box_heightmap(self, batch_size=10000):
         '''
         output: numpy array of shape (resolution, resolution)
 
@@ -134,10 +136,19 @@ class Env(object):
         ScanArray = np.array([yscan.reshape(-1),xscan.reshape(-1)])
         Start = np.insert(ScanArray,2,self.box_size[2],0).T
         End = np.insert(ScanArray,2,0,0).T
-        RayScan = np.array(p.rayTestBatch(Start, End),dtype=object)
+
+        # Split rays into batches
+        num_batches = int(np.ceil(len(Start) / batch_size))
+        RayScan = []
+        for i in range(num_batches):
+            start_batch = Start[i*batch_size:(i+1)*batch_size]
+            end_batch = End[i*batch_size:(i+1)*batch_size]
+            RayScan.extend(p.rayTestBatch(start_batch, end_batch))
+
+        RayScan = np.array(RayScan, dtype=object)
         Height = (1-RayScan[:,2].astype('float64'))*self.box_size[2]
         HeightMap = Height.reshape(self.resolution,self.resolution).T
-        return HeightMap  
+        return HeightMap
     
     def visualize_object_heightmaps(self, Ht, Hb, orient, only_top = False):
         '''
@@ -309,9 +320,8 @@ class Env(object):
         max_z_global = max(vertex[2] for vertex in global_vertices)        
         max_x_global = max(vertex[0] for vertex in global_vertices)
         max_y_global = max(vertex[1] for vertex in global_vertices)
-
+        del(global_vertices)
         # Extracts the boundingbox of the item
-        AABB = p.getAABB(item_id)
         offset_pointminz_COM = 1 - min_z_global
         offset_pointmaxz_COM = max_z_global -  1
 
@@ -342,8 +352,8 @@ class Env(object):
         ScanArray = np.array([xscan.reshape(-1),yscan.reshape(-1)])
         Top = np.insert(ScanArray,2,max_z_global,axis=0).T
         Down = np.insert(ScanArray,2,min_z_global,axis=0).T
-        RayScanTD = np.array(p.rayTestBatch(Top, Down),dtype=object)
-        RayScanDT = np.array(p.rayTestBatch(Down, Top),dtype=object)
+        RayScanTD = self.ray_cast_in_batches(Top, Down)
+        RayScanDT = self.ray_cast_in_batches(Down, Top)
         
         # Computes the heights of points on the top (Ht) and bottom (Hb) surfaces of the bounding box based on the results of the ray casting.
         Ht = (1-RayScanTD[:,2])*(max_z_global - min_z_global)
@@ -358,7 +368,15 @@ class Env(object):
         # Resets the initial orientation for the item
         p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
         return Ht,Hb, obj_length, obj_width, offsets 
-    
+        
+    def ray_cast_in_batches(self, starts, ends, batch_size=10000):
+        results = []
+        for i in range(0, len(starts), batch_size):
+            batch_starts = starts[i:i+batch_size]
+            batch_ends = ends[i:i+batch_size]
+            results.extend(p.rayTestBatch(batch_starts, batch_ends))
+        return np.array(results, dtype=object)
+
     def order_by_bbox_volume(self,items_ids):
         '''
         items_ids: list of integers
@@ -485,7 +503,7 @@ class Env(object):
         # Checks the stability of the item based on its final position and orientation
         for i in range(500):
             p.stepSimulation()
-            time.sleep(1./240.)
+            
         
         AABB_after_pack = self.drawAABB( self.compute_object_bbox(item_id))
         curr_pos, curr_quater = p.getBasePositionAndOrientation(item_id)
@@ -738,7 +756,7 @@ class Env(object):
         for i,_ in enumerate(item_in_box):
             total_volume += item_volumes[i]
         box_volume = np.max(box_hm)*self.box_size[0]*self.box_size[1]
-        print(f'{purple_light}>Compactness is: ', total_volume/box_volume,f'{exit}')
+        print(f'{purple_light}>Compactness is: ', total_volume/box_volume, f'{reset}')
         return total_volume/box_volume
 
     def Pyramidality(self, item_in_box, item_volumes, box_hm):
@@ -754,7 +772,7 @@ class Env(object):
         for i,item in enumerate(item_in_box):
             total_volume += item_volumes[i]
         used_volume = np.sum(box_hm)
-        print(f'{purple_light}Piramidality is: ', total_volume/used_volume, f'{exit}')
+        print(f'{purple_light}>Piramidality is: ', total_volume/used_volume, f'{reset}')
         return total_volume/used_volume
     
     def Objective_function(self, item_in_box, item_volumes, box_hm, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25):
@@ -796,18 +814,52 @@ class Env(object):
         
         Function to compute the maximum z-value of the item in the box due to gravity
         '''
-
-        s_range = range(0, Hb.shape[0])
-        t_range = range(0, Hb.shape[1])
-        max_z = 0
-        ss_range = range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)
-        tt_range = range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)
-
+        # Select the region of Hc and Hb that corresponds to the item
         x_range = [pixel_x + i for i in range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)]
         y_range = [pixel_y + i for i in range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)]
+        x_min = max(0,x_range[0])
+        x_max = min(Hb.shape[0],x_range[-1])
+        y_min = max(0,y_range[0])
+        y_max = min(Hb.shape[1],y_range[-1])
+        Hc = Hc[x_min:x_max, y_min:y_max]
+        del(x_range, y_range, x_max,x_min,y_max,y_min)
+        gc.collect()
+        
+        # Initialize an empty list to store the results
+        diffs = []
 
+        # Determine the chunk size
+        chunk_size = 100
 
-        # Display predicted pose
+        # Calculate the number of chunks
+        num_chunks = np.prod(Hb.shape) // chunk_size
+        
+        # Iterate over the chunks
+        for chunk_num in range(num_chunks):
+            # Calculate the start and end indices for this chunk
+            start_index = chunk_num * chunk_size
+            end_index = (chunk_num + 1) * chunk_size
+
+            # Get the chunk of Hb
+            Hb_chunk = Hb.reshape(-1)[start_index:end_index].reshape(-1, 1, 1)
+
+            # Subtract the chunk from Hc and append the result to the list
+            diffs.append(np.max(Hc.reshape(1, 1, *Hc.shape) - Hb_chunk))
+
+        # Handle the last chunk separately, if there is one
+        if np.prod(Hb.shape) % chunk_size != 0:
+            start_index = num_chunks * chunk_size
+            end_index = np.prod(Hb.shape)
+            Hb_chunk = Hb.reshape(-1)[start_index:end_index].reshape(-1, 1, 1)
+            diffs.append(np.max(Hc.reshape(1, 1, *Hc.shape) - Hb_chunk))
+
+        del( Hc, Hb, Hb_chunk)
+        gc.collect()
+
+        # Find the maximum value among all subtractions
+        max_z = max(diffs)
+
+        ''' Uncomment to visualize the heightmaps and the pixel position'''
         # fig, axs = plt.subplots(1, 1, figsize=(10, 5))
         # axs.imshow(Hc, cmap='viridis', origin='lower')
         # axs.plot(pixel_x, pixel_y, 'ro')
@@ -817,16 +869,23 @@ class Env(object):
         # axs.set_ylabel('Y')
         # plt.tight_layout()
         # plt.show()
-        
 
-        for s in s_range:
-                for t in t_range:
-                        for ss in ss_range:
-                            for tt in tt_range:
-                                if 0 <= pixel_x+ss < Hc.shape[0] and 0 <= pixel_y+tt < Hc.shape[1]:
-                                    z = Hc[pixel_x+ss, pixel_y+tt] - Hb[s, t]
-                                    max_z = max(max_z, z)
-                        
+
+        ''' -------- Old way to compute max_z with for loops ---not efficient ''' 
+        #s_range = range(0, Hb.shape[0])
+        #t_range = range(0, Hb.shape[1])
+        #max_z = 0
+        #ss_range = range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)
+        #tt_range = range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)
+        #for s in s_range:
+        #         for t in t_range:
+        #                 for ss in ss_range:
+        #                     for tt in tt_range:
+        #                         if 0 <= pixel_x+ss < Hc.shape[0] and 0 <= pixel_y+tt < Hc.shape[1]:
+        #                             z = Hc[pixel_x+ss, pixel_y+tt] - Hb[s, t]
+        #                             max_z = max(max_z, z)
+        #max_z = max((Hc[pixel_x+ss, pixel_y+tt] - Hb[s, t] for s in s_range for t in t_range for ss in ss_range for tt in tt_range if 0 <= pixel_x+ss < Hc.shape[0] and 0 <= pixel_y+tt < Hc.shape[1]), default=0)
+
         return max_z
     
     def euler_angle_distance(self, curr_euler, target_euler):

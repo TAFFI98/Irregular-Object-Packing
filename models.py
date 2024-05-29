@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torchvision
 import matplotlib.pyplot as plt
+import torch.nn.init as init
 ''' 
 selection_net and placement_net are the classes to be imported
 from models import  placement_net, selection_net
@@ -307,10 +308,19 @@ class conv_block(nn.Module):
             nn.Dropout(0.3),
             nn.ReLU(inplace=True),
         )
+        self.apply(self.init_weights)
 
     def forward(self,x):
         x = self.layer1(x)
         x = self.layer2(x)
         return x
+
+    @staticmethod
+    def init_weights(m):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            #init.xavier_uniform_(m.weight)
+            init.kaiming_uniform_(m.weight, nonlinearity='relu')
+            if m.bias is not None:
+                init.zeros_(m.bias)
 
     

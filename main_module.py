@@ -10,7 +10,7 @@ import scipy as sc
 import cv2    
 import pybullet_data
 import pybullet as p
-
+import gc
 from trainer import Trainer
 from tester import Tester
 from env import Env
@@ -21,6 +21,9 @@ def train(args):
     # Initialize snapshots
     manager_snap = args.manager_snapshot
     worker_snap = args.worker_snapshot
+    # Environment setup
+    box_size = args.box_size
+    resolution = args.resolution
     list_epochs_for_plot, losses, rewards = [],[],[]
     
     for new_episode in range(args.new_episodes):
@@ -86,7 +89,7 @@ def train(args):
                 print(f"{purple}NEW EPISODE: ", episode,f"{reset}")                
                 print('----------------------------------------')
                 print('----------------------------------------')
-                
+           
 
         # Initialize trainer
         trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
@@ -94,9 +97,6 @@ def train(args):
                 file_snapshot_manager = manager_snap, file_snapshot_worker = worker_snap,
                 K=args.k_sort, episode = episode, epoch = epoch)
 
-        # Environment setup
-        box_size = (0.4,0.4,0.3)
-        resolution = 50
         env = Env(obj_dir = args.obj_folder_path, is_GUI = args.gui, box_size=box_size, resolution = resolution)
         print('Set up of PyBullet Simulation environment: \nBox size: ',box_size, '\nResolution: ',resolution)
 
@@ -114,9 +114,8 @@ def train(args):
         env.draw_box(width=5)
 
         #-- Load items 
-        values = np.arange(start=0, stop=100+1, step=1)
         #item_numbers = np.array([17,19]) #to debug
-        item_numbers =  np.random.choice(values, K_obj, replace=False)
+        item_numbers =  np.random.choice(np.arange(start=0, stop=100+1, step=1), K_obj, replace=False)
         
         item_ids = env.load_items(item_numbers)
 
@@ -149,6 +148,8 @@ def train(args):
             unpacked = env.unpacked
             if len(unpacked) == 0:
                 print(f"{bold}{red}NO MORE ITEMS TO PACK --> END OF EPISODE{reset}") 
+                manager_snapshot = args.manager_snapshot
+                manager_snapshot = args.manager_snapshot
                 continue
             else:
                 print(f"{bold}There are still ", len(unpacked), f" items to be packed.{reset}")
@@ -158,6 +159,8 @@ def train(args):
             is_box_full = max_Heightmap_box > box_size[2] - eps_height
             if is_box_full: 
                 print(f"{bold}{red}BOX IS FULL --> END OF EPISODE{reset}")
+                manager_snapshot = args.manager_snapshot
+                manager_snapshot = args.manager_snapshot
                 continue
             else:
                 print(f"{bold}Max box height not reached yet.{reset}")
@@ -175,7 +178,7 @@ def train(args):
 
                 # select k objects with the largest bounding box volume
                 print('---------------------------------------')
-                print(f"{yellow}\n1. SELECTION: Object selection according to Manager Network Selection{reset}")
+                print(f"{bold}\n1. SELECTION: Object selection according to Manager Network Selection{reset}")
                 
                 k_sort = args.k_sort 
 
@@ -205,12 +208,13 @@ def train(args):
                         #env.visualize_object_heightmaps(Ht, _, view, only_top = True)
                         #env.visualize_object_heightmaps_3d(Ht, _, view, only_top = True)
                         item_views.append(Ht)
-
+                        del(Ht,_)
+                        gc.collect()
                     item_views = np.array(item_views)
                     views.append(item_views)
 
                 views = np.array(views) # (K, 6, resolution, resolution)
-
+                print("Computed the 6 views heightmaps for each object")
                 # forward pass in the manager network to get the scores for next object to be packed
                 input1_selection_network = np.expand_dims(views, axis=0)  #(batch, K, 6, resolution, resolution)
                 input2_selection_network = np.expand_dims(np.expand_dims(heightmap_box,axis=0), axis=0)  #(batch, 1, resolution, resolution)
@@ -243,57 +247,83 @@ def train(args):
                     Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
                     Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
                     heightmaps_rp.append(np.concatenate((Ht,Hb), axis=2)) 
-
+                    del(Ht, Hb, orient, _)
+                    gc.collect()
+            del(r,p,roll,pitch)
+            gc.collect()
             heightmaps_rp = np.asarray(heightmaps_rp) # (16, res, res, 2)
             roll_pitch_angles = np.asarray(roll_pitch_angles) # (16, 2)
 
             # prepare inputs for forward pass in the worker network
             input_placement_network_1 = np.expand_dims(heightmaps_rp, axis=0)                          # (batch, 16, res, res, 2) -- object heightmaps at different roll-pitch angles
+            del(heightmaps_rp)
+            gc.collect()
             input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) # (batch, res, res, 1)     -- box heightmap
 
             # forward pass into worker to get Q-values for placement
             Q_values = trainer.forward_worker_network(env, roll_pitch_angles, input_placement_network_1, input_placement_network_2)
+
+            del(input_placement_network_1, input_placement_network_2)   
+            gc.collect()
+
             print(f"{bold}\n2. PLACEMENT: Computing packing pose of the selected object with placement network{reset}")
             print("Q values computed for every candidate pose.\n")
 
             # Uncomment to plot Q-values
             # Qvisual = trainer.visualize_Q_values(Q_values, show=True)
-
-
             # check placement validity
-            indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
-
-            # Compute objective function  
-            v_items_packed, _ = env.order_by_item_volume(env.packed)
-            current_obj = env.Objective_function(env.packed, v_items_packed, NewBoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
-            if i>= 1:
-                    ''' Compute reward '''
-                    print('Previous Objective function is: ', prev_obj)
-                    current_reward, yt = trainer.get_Qtarget_value(Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env)
+            indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
+            del(roll_pitch_angles,heightmap_box)
+            gc.collect()
+            if packed == True:
+                # Compute objective function  
+                v_items_packed, _ = env.order_by_item_volume(env.packed)
+                current_obj = env.Objective_function(env.packed, v_items_packed, NewBoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
+                del(v_items_packed,_)
+                gc.collect()
+                if i>= 1:
+                        ''' Compute reward '''
+                        print('Previous Objective function is: ', prev_obj)
+                        current_reward, yt = trainer.get_Qtarget_value(Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env)
+                        
+                        loss_value = trainer.backprop(Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1)
                     
-                    loss_value = trainer.backprop(Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1)
-                
-                    # Updating training epoch
-                    epoch += 1
-                    print(f"{purple}Worker network trained on ", epoch, f"EPOCHS{reset}")
-                    
-                    # save snapshots and remove old ones if more than max_snapshots
-                    manager_snapshot, worker_snapshot = trainer.save_snapshot(max_snapshots=5) 
-                    
-                    # save and plot losses and rewards
-                    list_epochs_for_plot.append(epoch)
-                    losses.append(loss_value)
-                    rewards.append(current_reward)
-                    trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
-                    trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
-            
-            prev_obj = current_obj
-            heightmap_box = NewBoxHeightMap
-
-
+                        # Updating training epoch
+                        epoch += 1
+                        print(f"{purple}Worker network trained on ", epoch, f"EPOCHS{reset}")
+                        
+                        # save snapshots and remove old ones if more than max_snapshots
+                        manager_snapshot, worker_snapshot = trainer.save_snapshot(max_snapshots=5) 
+                        
+                        # save and plot losses and rewards
+                        list_epochs_for_plot.append(epoch)
+                        losses.append(loss_value)
+                        rewards.append(current_reward)
+                        trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
+                        trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
+                        
+                        del(yt, current_reward, loss_value)
+                        gc.collect()
+                prev_obj = current_obj
+                heightmap_box = NewBoxHeightMap
+            elif packed == False:
+                if epoch == 0:
+                    manager_snapshot, worker_snapshot = None, None
+                print(f"{bold}{red}OBJECT WITH ID: ", next_obj, f" CANNOT BE PACKED{reset}")
+                heightmap_box = NewBoxHeightMap
+            del(Q_values,stability_of_packing,indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, packed)
+            gc.collect()
         manager_snap = manager_snapshot
         worker_snap = worker_snapshot
+        if epoch == 0:
+            load_snapshot_manager_ = False
+            load_snapshot_worker_ = False
+        else:
+            load_snapshot_manager_ = True
+            load_snapshot_worker_ = True
 
+        del(env)
+        gc.collect()
         print('--------------------------------------')
         print(f'{red}END OF CURRENT EPISODE: ', episode, f'{reset}')
         print('--------------------------------------')
@@ -470,14 +500,15 @@ if __name__ == '__main__':
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
     parser.add_argument('--k_max', action='store', default=10) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
+    parser.add_argument('--k_min', action='store', default=6) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
+    parser.add_argument('--resolution', dest='resolution', action='store', default=400) # resolution of the heightmaps
+    parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=f'snapshots/models/worker_network_episode_0_epoch_1.pth') # path to the manager network snapshot
     parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=f'snapshots/models/worker_network_episode_7_epoch_10.pth') # path to the worker network snapshot
     parser.add_argument('--new_episodes', action='store', default=10000) # number of episodes
     parser.add_argument('--load_snapshot_manager', dest='load_snapshot_manager', action='store', default=False) # Load snapshot of the manager network
     parser.add_argument('--load_snapshot_worker', dest='load_snapshot_worker', action='store', default=False) # Load snapshot of the worker network
-
     args = parser.parse_args()
     
     # --------------- Start Train ---------------
