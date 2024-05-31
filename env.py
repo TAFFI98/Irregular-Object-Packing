@@ -99,20 +99,22 @@ class Env(object):
         Function to load in simulation the objects on the basis of the ids
         '''
         flags = p.URDF_USE_INERTIA_FROM_FILE
-
+        print('Loading', len(item_ids) ,' objects in simluation:')
         # Read URDF information from CSV file
         with open(self.csv_file, 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             urdf_info = list(reader)
 
-        for count, urdf_data in enumerate(urdf_info):
-            if count in item_ids:
-                urdf_path = urdf_data['URDF Path']
-                scale = random.uniform(0.8, 1.2)  # Generate a random scale factor
-                loaded_id = p.loadURDF(urdf_path, [(count//5)/4+2.2, (count%5)/4+0.2, 0.1], flags=flags, globalScaling=scale)
-                print('-' ,urdf_path.split('/')[-2] , '(', urdf_path.split('/')[-3], ', scale:', np.round(scale,3),')')
-                self.loaded_ids.append(loaded_id)
-                self.unpacked.append(loaded_id)
+        for count,id in enumerate(item_ids):
+            position = [i for i, d in enumerate(urdf_info) if int(d['Index']) == id]
+            urdf_path = urdf_info[position[0]]['URDF Path']
+            scale = random.uniform(0.8, 1.2)  # Generate a random scale factor
+            loaded_id = p.loadURDF(urdf_path, [(count//5)/4+2.2, (count%5)/4+0.2, 0.1], flags=flags, globalScaling=scale)
+            print('- ', count+1 ,'.',urdf_path.split('/')[-2] , '(', urdf_path.split('/')[-3], ', scale:', np.round(scale,3), ', id:',loaded_id,')')
+            self.loaded_ids.append(loaded_id)
+            self.unpacked.append(loaded_id)
+
+
         return self.loaded_ids
     
     def remove_all_items(self):
@@ -739,7 +741,7 @@ class Env(object):
                         writer.writerow({'Index': index, 'Object Name': object_name, 'URDF Path': urdf_path})
                         index += 1
             tot_num_objects = index
-            print('Total number of available objects: ', tot_num_objects )
+            print('Total number of different available objects: ', tot_num_objects )
 
         return tot_num_objects
     
@@ -752,12 +754,15 @@ class Env(object):
 
         Function to compute the compactness of the packing
         '''
-        total_volume = 0
-        for i,_ in enumerate(item_in_box):
-            total_volume += item_volumes[i]
-        box_volume = np.max(box_hm)*self.box_size[0]*self.box_size[1]
-        print(f'{purple_light}>Compactness is: ', total_volume/box_volume, f'{reset}')
-        return total_volume/box_volume
+        if not item_in_box:
+                return 0
+        else:
+            total_volume = 0
+            for i,_ in enumerate(item_in_box):
+                total_volume += item_volumes[i]
+            box_volume = np.max(box_hm)*self.box_size[0]*self.box_size[1]
+            print(f'{purple_light}>Compactness is: ', total_volume/box_volume, f'{reset}')
+            return total_volume/box_volume
 
     def Pyramidality(self, item_in_box, item_volumes, box_hm):
         '''
@@ -768,12 +773,15 @@ class Env(object):
         
         Function to compute the piramidality of the packing
         '''
-        total_volume = 0
-        for i,item in enumerate(item_in_box):
-            total_volume += item_volumes[i]
-        used_volume = np.sum(box_hm)
-        print(f'{purple_light}>Piramidality is: ', total_volume/used_volume, f'{reset}')
-        return total_volume/used_volume
+        if not item_in_box:
+                return 0
+        else:
+            total_volume = 0
+            for i,item in enumerate(item_in_box):
+                total_volume += item_volumes[i]
+            used_volume = np.sum(box_hm)
+            print(f'{purple_light}>Piramidality is: ', total_volume/used_volume, f'{reset}')
+            return total_volume/used_volume
     
     def Objective_function(self, item_in_box, item_volumes, box_hm, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25):
         '''

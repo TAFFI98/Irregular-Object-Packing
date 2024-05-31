@@ -53,8 +53,7 @@ class Trainer(object):
             # Initialize Huber loss
             self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
             self.future_reward_discount = future_reward_discount
-            if self.use_cuda:
-                    self.criterion = self.criterion.cuda()
+
 
             # Load pre-trained model
             if load_snapshot_worker:
@@ -107,7 +106,7 @@ class Trainer(object):
         # Pass input data through model
         chosen_item_index, score_values = self.manager_network.forward(torch.tensor(input1_selection_network, requires_grad=False),torch.tensor(input2_selection_network, requires_grad=False),env.loaded_ids)
         print('----------------------------------------')
-        print('Computed Manager network predictions. The object to be packed has been chosen.')
+        print(f'{bold}Computed Manager network predictions. The object to be packed has been chosen: {reset}', chosen_item_index)
 
         return chosen_item_index, score_values
 
@@ -125,8 +124,8 @@ class Trainer(object):
 
         return  Q_values 
     
-    # Compute target Q_value yt
-    def get_Qtarget_value(self, Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env):
+    # Compute target Q_target
+    def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):
         '''
         Q_values: predicted Q_values
         indices_rp: roll and pitch index of the selected pixel
@@ -137,25 +136,25 @@ class Trainer(object):
         current_obj: current objective function value
         env: environment object
         output:
-        yt: target Q_value
+        Q_target: target Q_value
         '''
         # Compute current reward
         current_reward = env.Reward_function(prev_obj, current_obj)
 
         # Compute expected reward:
-        future_reward = float(Q_values[0,indices_rp,indices_y,pixel_x,pixel_y])
+        future_reward = Q_max
 
         print('Current reward: %f' % (current_reward))
         print('Future reward: %f' % (future_reward))
-        yt = current_reward + self.future_reward_discount * future_reward
-        print('Expected reward: %f ' % (yt))
-        return current_reward, yt
+        Q_target = current_reward + self.future_reward_discount * future_reward
+        print('Expected reward: %f ' % (Q_target))
+        return current_reward, Q_target
 
     # Compute labels and backpropagate
-    def backprop(self, Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1):
+    def backprop(self, Q_values, Q_target, indices_rp, indices_y, pixel_x, pixel_y, optimizer_step):
             '''
-            Q_values: predicted Q_values
-            yt: target Q_value
+            Q_max: predicted Q_values
+            Q_target: target Q_value
             indices_rp: roll and pitch index of the selected pixel
             indices_y: yaw index of the selected pixel
             pixel_x: x coordinate of the selected pixel
@@ -164,41 +163,32 @@ class Trainer(object):
             This function computes the labels and backpropagates the loss across the networks
             '''
             
-            # Compute labels to be able to pass gradients only through the selected action (pixel and orientation channel)
-            label_Q = torch.zeros_like((Q_values))
-            label_Q[:,indices_rp,indices_y,pixel_x,pixel_y] = yt * label_weight 
-
             # Compute loss and backward pass
             if self.method == 'stage_2':
                 self.optimizer_manager.zero_grad()
 
             self.optimizer_worker.zero_grad()
-
-            loss_value = 0
-
             if self.use_cuda:
-                    loss = self.criterion(Q_values.float().cuda(), label_Q.float().cuda())
+                Q_target_tensor = torch.tensor(Q_target).cuda()
             else:
-                    loss = self.criterion(Q_values.float(), label_Q.float())
-            
-            loss = loss.sum()
+                Q_target_tensor = torch.tensor(Q_target)
+            loss = self.criterion(Q_values[:, indices_rp, indices_y, pixel_x, pixel_y], Q_target_tensor)
             loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-            loss_value = loss.cpu().data.numpy()
-            loss_value = loss_value/2
-
-            print(f'{blue_light}------------------ Training loss: %f' % (loss_value),f'------------------{reset}')
+            print(f'{blue_light}------------------ Training loss: %f' % (loss),f'------------------{reset}')
+            
             if self.epoch % 4 == 0 and self.method == 'stage_2':
                 print(f'{blue_light}--> Backpropagating loss on manager network{reset}')
                 self.optimizer_manager.step()
+            if optimizer_step== True:
+                print(f'{blue_light}-->Backpropagating loss on worker network{reset}')
+                self.optimizer_worker.step()
+                self.epoch = self.epoch+1
 
-            print(f'{blue_light}-->Backpropagating loss on worker network{reset}')
-            self.optimizer_worker.step()
-
-            self.epoch = self.epoch+1
             if self.use_cuda:
                 torch.cuda.empty_cache()
-            return loss_value
 
+            return loss
+    
     def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images = 4):
         # Ensure the folder exists
         os.makedirs(folder, exist_ok=True)
@@ -331,10 +321,8 @@ class Trainer(object):
         sorted_values, sorted_indices = torch.sort(Q_values_flat, descending=True)
         _, _, box_height = env.box_size
 
-        del(Q_values,Q_values_flat,sorted_values)
-        gc.collect()
         # Determine the max number of tentatives to pack the object for each batch
-        tentatives = 20
+        tentatives = 10
         tentatives_sets= 0
         # Iterate over the batches
         # Calculate the start and end indices for this batch
@@ -343,8 +331,10 @@ class Trainer(object):
 
         # Get the batch of indices
         batch_indices = sorted_indices[start_index:end_index]
+
         del(sorted_indices)
         gc.collect()
+
         # Unravel the indices in this batch
         for k,i in enumerate(batch_indices):
             index = torch.unravel_index(i, Q_size)
@@ -353,8 +343,7 @@ class Trainer(object):
             indices_rp = int(index[2])
             pixel_x = int(index[3])
             pixel_y = int(index[4])
-            del(index)
-            gc.collect()
+
             r = float(roll_pitch_angles[indices_rp,0])
             p = float(roll_pitch_angles[indices_rp,1])
             y = float(indices_y * (360 / self.n_y))
@@ -413,35 +402,39 @@ class Trainer(object):
                     print(f'{purple_light}>Stability is:', stability_of_packing,f'{reset}')
                     env.removeAABB(limits_obj_line_ids)
                     packed = True
-                    return indices_rp, indices_y, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed
+                    Q_max = Q_values[0,indices_y,indices_rp,pixel_x,pixel_y]
+                    return indices_rp, indices_y, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed,  float(Q_max.cpu())
             
         packed = False
-        return False, False, False, False, False, False, packed
+        Q_max = Q_values[0,indices_y,indices_rp,pixel_x,pixel_y]
+        return indices_rp, indices_y, pixel_x, pixel_y, False, 0 , packed, float(Q_max.cpu())
 
         
     
-    def save_snapshot(self, max_snapshots=5):
+    def save_snapshot(self, optimizer_step, max_snapshots=5):
         """
         Save snapshots of the trained models.
         """
-        os.makedirs('snapshots/models/', exist_ok=True)
-        torch.save(self.worker_network.state_dict(), f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth')
+        if optimizer_step == True:
+            os.makedirs('snapshots/models/', exist_ok=True)
+            torch.save(self.worker_network.state_dict(), f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth')
 
-        # If there's a manager network, save it as well
-        if self.method == 'stage_2':
-            torch.save(self.manager_network.state_dict(), f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth')
+            # If there's a manager network, save it as well
+            if self.method == 'stage_2':
+                torch.save(self.manager_network.state_dict(), f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth')
 
 
-        # Get a list of all files in the directory
-        files = glob.glob(os.path.join('snapshots/models/', '*'))
+            # Get a list of all files in the directory
+            files = glob.glob(os.path.join('snapshots/models/', '*'))
 
-        # If there are more than 5 files
-        if len(files) > max_snapshots:
-                # Sort the files by modification time
-                files.sort(key=os.path.getmtime)
+            # If there are more than 5 files
+            if len(files) > max_snapshots:
+                    # Sort the files by modification time
+                    files.sort(key=os.path.getmtime)
 
-                # Remove the oldest file
-                os.remove(files[0])
+                    # Remove the oldest file
+                    os.remove(files[0])
 
-        return f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth', f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth'
-
+            return f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth', f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth'
+        else:
+            return f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth', f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth'

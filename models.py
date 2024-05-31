@@ -52,8 +52,8 @@ class selection_net(nn.Module):
         # Initialize network trunks with ResNet pre-trained on ImageNet
         self.backbones = nn.ModuleList([self.initialize_backbone() for _ in range(self.K)])
         
-        # Add a spatial pooling layer to pool the (2, 2) features
-        self.spatial_pooling = nn.AvgPool2d(kernel_size=(2, 2))
+        # Add a spatial pooling layer to pool the (7, 7) features
+        self.spatial_pooling = nn.AvgPool2d(kernel_size=(7, 7))
         
         # Freeze the parameters of the backbone networks
         for backbone in self.backbones:
@@ -70,22 +70,32 @@ class selection_net(nn.Module):
         # Remove the final average pooling and fully connected layers
         backbone = nn.Sequential(*list(backbone.children())[:-2])
         
+        # Add an adaptive average pooling layer to ensure output is always 7x7
+        backbone = nn.Sequential(
+            backbone,
+            nn.AdaptiveAvgPool2d((7, 7))
+        )
+        
         return backbone
 
     def forward(self, input_1, input_2, item_ids):
 
         concatenated_features,k_already_packed = [],[]
+
+        if self.use_cuda == True :
+            input_1 = input_1.cuda()
+            input_2 = input_2.cuda()
         for k in range(self.K):
             # Concatenate input_1 with input_2 along dimension=-3
             if not torch.any(input_1[:, k, :, :, :][input_1[:, k, :, :, :]!= 0]):
                 k_already_packed.append(k)
                 concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
                 # Forward pass through the backbone network
-                backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,2,2)
+                backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,7,7)
             else:
                 concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
                 # Forward pass through the backbone network
-                backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,2,2)
+                backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,7,7)
             
             # Apply spatial pooling to the features
             pooled_features = self.spatial_pooling(backbone_output)           #(batch,512,1,1)
@@ -109,13 +119,15 @@ class final_conv_select_net(nn.Module):
     def __init__(self, use_cuda, K):
         super(final_conv_select_net, self).__init__()
         self.num_classes = K
-        self.use_cuda = use_cuda
-
         # Define fully connected layers for each branch
         self.fc_layers = nn.ModuleList([self.create_fc_layers() for _ in range(K)])
         
         # Sigmoid activation function
         self.sigmoid = nn.Sigmoid()
+
+        # Move model to GPU if use_cuda is True
+        if use_cuda:
+            self.cuda()
 
     def create_fc_layers(self):
         return nn.Sequential(

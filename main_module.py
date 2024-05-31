@@ -21,11 +21,15 @@ def train(args):
     # Initialize snapshots
     manager_snap = args.manager_snapshot
     worker_snap = args.worker_snapshot
+
     # Environment setup
     box_size = args.box_size
     resolution = args.resolution
     list_epochs_for_plot, losses, rewards = [],[],[]
-    
+
+    # Batch size for training
+    batch_size = args.batch_size
+
     for new_episode in range(args.new_episodes):
         
         # Initialize episode and epochs counters
@@ -39,6 +43,7 @@ def train(args):
                         load_snapshot_worker_ = True
                         episode = int(worker_snap.split('_')[-3])
                         epoch = int(worker_snap.split('_')[-1].strip('.pth'))
+                        sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
@@ -48,6 +53,7 @@ def train(args):
                         load_snapshot_worker_ = False
                         episode = 0
                         epoch = 0
+                        sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE:", episode,f"{reset}")                
@@ -60,7 +66,7 @@ def train(args):
                         load_snapshot_worker_ = True
                         episode = int(worker_snap.split('_')[-3])
                         epoch = int(worker_snap.split('_')[-1].strip('.pth'))
-                        epoch = int(worker_snap.split('_')[-1].strip('.pth'))
+                        sample_counter = 0                        
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
@@ -70,6 +76,7 @@ def train(args):
                         load_snapshot_worker_ = False
                         episode = 0
                         epoch = 0
+                        sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE: ", episode,f"{reset}")                
@@ -91,41 +98,42 @@ def train(args):
                 print('----------------------------------------')
            
 
-        # Initialize trainer
-        trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
-                load_snapshot_manager = load_snapshot_manager_, load_snapshot_worker = load_snapshot_worker_, 
-                file_snapshot_manager = manager_snap, file_snapshot_worker = worker_snap,
-                K=args.k_sort, episode = episode, epoch = epoch)
-
-        env = Env(obj_dir = args.obj_folder_path, is_GUI = args.gui, box_size=box_size, resolution = resolution)
-        print('Set up of PyBullet Simulation environment: \nBox size: ',box_size, '\nResolution: ',resolution)
-
-
         # Define number of items for current episode
         if args.k_min < 2:
             raise ValueError("k_min must be greater than or equal to 2")
         K_obj = random.choice(list(range(args.k_min,args.k_max+1)))
+        k_sort = min(args.k_sort, K_obj)
+
+        # Initialize trainer
+        trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                load_snapshot_manager = load_snapshot_manager_, load_snapshot_worker = load_snapshot_worker_, 
+                file_snapshot_manager = manager_snap, file_snapshot_worker = worker_snap,
+                K=k_sort, episode = episode, epoch = epoch)
+
+        env = Env(obj_dir = args.obj_folder_path, is_GUI = args.gui, box_size=box_size, resolution = resolution)
+        print('Set up of PyBullet Simulation environment: \nBox size: ',box_size, '\nResolution: ',resolution)
+        
         # Generate csv file with objects
         print('----------------------------------------') 
-        _ = env.generate_urdf_csv()
+        K_available = env.generate_urdf_csv()
         print('----------------------------------------')
-        print(f'{bold}Generating CSV with ', K_obj, f' objects:{reset}')
         #-- Draw Box
         env.draw_box(width=5)
 
         #-- Load items 
         #item_numbers = np.array([17,19]) #to debug
-        item_numbers =  np.random.choice(np.arange(start=0, stop=100+1, step=1), K_obj, replace=False)
-        
+        item_numbers =  np.random.choice(np.arange(start=0, stop=K_available, step=1), K_obj, replace=True)
         item_ids = env.load_items(item_numbers)
-
+        if len(item_ids) == 0:
+            raise ValueError("NO ITEMS LOADED!!")
+            
         # volumes, sorted_ids = env.order_by_item_volume(item_ids)
         _, bbox_order = env.order_by_bbox_volume(item_ids)
         for i in range(500):
             env.p.stepSimulation() 
 
         print('----------------------------------------')
-        print(f"{purple_light}K = ", K_obj, 'Items Loaded for this episode', f"{reset}")
+        print(f"{purple_light}K = ", len(bbox_order), 'Items Loaded for this episode', f"{reset}")
         print('--------------------------------------')
         print('Order of objects ids in simulation according to decreasing bounding box volume: ', bbox_order)
         print('Loaded ids before packing: ', env.loaded_ids)
@@ -137,6 +145,7 @@ def train(args):
         eps_height = 0.05 * box_size[2] # 5% of box height
         print(f"{purple}Worker network already trained on ", epoch, f"EPOCHS{reset}")
         # loop over the loaded objects
+
         for i in range(K_obj):
             print(f"{purple}Packing iteration for current episode: ", i, "out of ", K_obj, f"{reset}") 
             heightmap_box = env.box_heightmap()
@@ -180,7 +189,6 @@ def train(args):
                 print('---------------------------------------')
                 print(f"{bold}\n1. SELECTION: Object selection according to Manager Network Selection{reset}")
                 
-                k_sort = args.k_sort 
 
                 principal_views = {
                         "front": [0, 0, 0],
@@ -210,6 +218,7 @@ def train(args):
                         item_views.append(Ht)
                         del(Ht,_)
                         gc.collect()
+
                     item_views = np.array(item_views)
                     views.append(item_views)
 
@@ -221,6 +230,8 @@ def train(args):
 
                 chosen_item_index, score_values = trainer.forward_manager_network(input1_selection_network,input2_selection_network, env)
 
+                del(input1_selection_network, input2_selection_network, views)
+                gc.collect()
                 next_obj = chosen_item_index
 
             # discretize r,p,y angles --> 90 degrees discretization
@@ -272,47 +283,47 @@ def train(args):
             # Uncomment to plot Q-values
             # Qvisual = trainer.visualize_Q_values(Q_values, show=True)
             # check placement validity
-            indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
+            indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
+
             del(roll_pitch_angles,heightmap_box)
             gc.collect()
-            if packed == True:
-                # Compute objective function  
-                v_items_packed, _ = env.order_by_item_volume(env.packed)
-                current_obj = env.Objective_function(env.packed, v_items_packed, NewBoxHeightMap, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
-                del(v_items_packed,_)
-                gc.collect()
-                if i>= 1:
-                        ''' Compute reward '''
-                        print('Previous Objective function is: ', prev_obj)
-                        current_reward, yt = trainer.get_Qtarget_value(Q_values, indices_rp, indices_y, pixel_x, pixel_y, prev_obj, current_obj, env)
-                        
-                        loss_value = trainer.backprop(Q_values, yt, indices_rp, indices_y, pixel_x, pixel_y, label_weight=1)
-                    
-                        # Updating training epoch
-                        epoch += 1
-                        print(f"{purple}Worker network trained on ", epoch, f"EPOCHS{reset}")
-                        
-                        # save snapshots and remove old ones if more than max_snapshots
-                        manager_snapshot, worker_snapshot = trainer.save_snapshot(max_snapshots=5) 
-                        
-                        # save and plot losses and rewards
-                        list_epochs_for_plot.append(epoch)
-                        losses.append(loss_value)
-                        rewards.append(current_reward)
-                        trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
-                        trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
-                        
-                        del(yt, current_reward, loss_value)
-                        gc.collect()
-                prev_obj = current_obj
-                heightmap_box = NewBoxHeightMap
-            elif packed == False:
-                if epoch == 0:
-                    manager_snapshot, worker_snapshot = None, None
-                print(f"{bold}{red}OBJECT WITH ID: ", next_obj, f" CANNOT BE PACKED{reset}")
-                heightmap_box = NewBoxHeightMap
-            del(Q_values,stability_of_packing,indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, packed)
+            # Compute objective function  
+            v_items_packed, _ = env.order_by_item_volume(env.packed)
+            current_obj = env.Objective_function(env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
+            del(v_items_packed,_)
             gc.collect()
+            if i>= 1:
+                    ''' Compute reward '''
+                    print('Previous Objective function is: ', prev_obj)
+                    current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
+                
+                    sample_counter += 1
+                    if sample_counter == batch_size:
+                        optimizer_step = True 
+                        epoch += 1
+                        print(f'{red}Recorded ', sample_counter, f' samples for 1 batch of training{reset}')
+                    else:
+                        optimizer_step = False
+                    loss_value = trainer.backprop(Q_values, Q_target, indices_rp, indices_y, pixel_x, pixel_y, optimizer_step)
+                    print(f"{purple}Worker network trained on ", epoch, f"EPOCHS{reset}")
+                        
+                    # save snapshots and remove old ones if more than max_snapshots
+                    manager_snapshot, worker_snapshot = trainer.save_snapshot(optimizer_step, max_snapshots=5) 
+                    
+                    # save and plot losses and rewards
+                    list_epochs_for_plot.append(epoch)
+                    losses.append(loss_value.cpu().detach().numpy())
+                    rewards.append(current_reward)
+                    trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
+                    trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
+                    
+
+
+            prev_obj = current_obj
+            heightmap_box = NewBoxHeightMap
+            if packed == False:
+                print(f"{bold}{red}OBJECT WITH ID: ", next_obj, f" CANNOT BE PACKED{reset}")
+
         manager_snap = manager_snapshot
         worker_snap = worker_snapshot
         if epoch == 0:
@@ -330,164 +341,7 @@ def train(args):
 
     print('End of training')
 
-def test(args):
-
-    # Setup environment
-    #is_sim = args.is_sim        # per adesso is_sim lo lascio fisso a True, poi da definire a livello di logica quando si implementa il robot fisico
-
-    # environment setup
-    box_size=(0.4,0.4,0.3)
-    resolution = 50
-    env = Env(obj_dir = args.obj_folder_path, is_GUI=True, box_size=box_size, resolution = resolution)
-    print('----------------------------------------')
-    print('Setup of PyBullet environment: \nBox size: ',box_size, '\nResolution: ',resolution)
-
-    # Generate csv file with objects 
-    tot_num_objects = env.generate_urdf_csv()
-    print('----------------------------------------')
-    print('Generating CSV with objects')
-
-    #-- Draw Box
-    env.draw_box( width=5)
-
-    #-- Load items 
-   
-    item_numbers = np.random.randint(0, 100, size=K)
-    item_ids = env.load_items(item_numbers)
-
-    # volumes, sorted_ids = env.order_by_item_volume(item_ids)
-    volume_bbox, bbox_order = env.order_by_bbox_volume(item_ids)
-
-    # initialize tester
-    tester = Tester(file_snapshot_manager='snapshots/models/manager_network_1.pth',file_snapshot_worker='snapshots/models/worker_network_1.pth', force_cpu=False, K=args.k_obj)
-
-    print('--------------------------------------')
-    print('Tester initialized')
-
-    # main for loop for testing
-    for i in range(args.k_obj):
-
-        heightmap_box = env.box_heightmap()
-        eps_height = 0.05 * box_size[2] # 5% of box height
-
-        average_stability = []
-
-        if np.size(env.unpacked) == 0:
-
-            volume_items_packed, _ = env.order_by_item_volume(env.packed)
-
-            print('------------------------- METRICS -------------------------')
-            pyramidality = env.Pyramidality(env.packed, volume_items_packed, NewBoxHeightMap)
-            compactness = env.Compactness(env.packed, volume_items_packed, NewBoxHeightMap)
-            stability = np.mean(average_stability)
-            print('Piramidality: ', pyramidality)  
-            print('Compactness: ', compactness)
-            print('Stability: ', stability)
-            print('Number of packed items: ', len(env.packed))
-
-        else:
-            max_Heightmap_box = np.max(heightmap_box)
-            is_box_full = max_Heightmap_box > box_size[2] - eps_height #valutare se sostituire con funzione chje guarda altezza di tutte le celle della heightmap
-            
-            if  is_box_full:
-
-                volume_items_packed, _ = env.order_by_item_volume(env.packed)
-
-                print('------------------------- METRICS -------------------------')
-                pyramidality = env.Pyramidality(env.packed, volume_items_packed, NewBoxHeightMap)
-                compactness = env.Compactness(env.packed, volume_items_packed, NewBoxHeightMap)
-                stability = np.mean(average_stability)
-                print('Piramidality: ', pyramidality)  
-                print('Compactness: ', compactness)
-                print('Stability: ', stability)
-                print('Number of packed items: ', len(env.packed))
-
-                print('Box is full' )
-                break
-                
-            else:
-
-                # select k_sort objects with largest bbox volume
-                unpacked_volume, unpacked_ids = env.order_by_bbox_volume(env.unpacked)
-
-                # select k-sort objects with largest bbox volume, compute their heightmaps for k_sort * 6 views and concatenate with box heightmap
-                k_sort = args.k_sort
-                #k_sort_ids = unpacked_ids[:k_sort]
-
-                principal_views = {
-                    "front": [0, 0, 0],
-                    "back": [180, 0, 0],
-                    "left": [0, -90, 0],
-                    "right": [0, 90, 0],
-                    "top": [-90, 0, 0],
-                    "bottom": [90, 0, 0]
-                }
-
-                views = []
-
-                # if number of object is less than k, update k       
-                if len(env.unpacked) < k_sort:
-                    k_sort = len(env.unpacked)
-
-                for i in range(k_sort):
-                    item_views = []
-
-                    for view in principal_views.values():
-                        Ht,_,_,_ ,_ = env.item_hm(unpacked_ids[i], view)
-                        #env.visualize_object_heightmaps(id_, view, only_top = True )
-                        #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
-                        item_views.append(Ht)
-
-                    item_views = np.array(item_views)
-                    views.append(item_views)    
-
-                views = np.array(views) # (K, 6, resolution, resolution) 
-
-                # prepare inputs for forward pass in the manager network to get the scores for next object to be packed
-                input1_selection_network = np.expand_dims(views, axis=0)  #(batch, K, 6, resolution, resolution)
-                input2_selection_network = np.expand_dims(np.expand_dims(heightmap_box,axis=0), axis=0)  #(batch, 1, resolution, resolution)
-                # forward pass in the manager network
-                chosen_item_index, score_values = tester.forward_manager_network(input1_selection_network,input2_selection_network, env)
-
-                next_obj = chosen_item_index
-
-                # discretize r,p,y angles
-                roll = np.arange(0,360,90) # 90 degrees discretization
-                pitch = np.arange(0,360,90)
-
-                roll_pitch_angles = [] # list of roll-pitch angles
-                hiehgtmaps_rp = [] # list of heightmaps for each roll-pitch angle
-
-                for r in roll:
-                    for p in pitch:
-
-                        roll_pitch_angles.append(np.array([r,p]))
-
-                        orient = [r,p,0]
-                        Ht, Hb, _, _ ,_= env.item_hm(next_obj, orient)
-                        
-                        # add one dimension to concatenate Ht and Hb
-                        Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
-                        Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
-                        heightmaps_rp.append(np.concatenate((Ht,Hb), axis=2))
-
-                heightmaps_rp = np.asarray(heightmaps_rp) # (16, res, res, 2)
-                roll_pitch_angles = np.asarray(roll_pitch_angles) # (16, 2)
-
-                # prepare inputs for forward pass in the worker network
-                input_placement_network_1 = np.expand_dims(heightmaps_rp, axis=0)  # (batch, 16, res, res, 2)
-                input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) #(batch, res, res, 1)
-
-                Q_values = tester.forward_worker_network(input_placement_network_1, input_placement_network_2, roll_pitch_angles)
-                print('Q values computed')
-
-                # check placement validity and update heightmap
-                indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing = tester.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
-                average_stability.append(stability_of_packing)
-                print('Packing item with id: ', next_obj)
-                heightmap_box = NewBoxHeightMap                 
-
-    print('Testing done')
+# 
 
 if __name__ == '__main__':
 
@@ -495,23 +349,185 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
-    parser.add_argument('--obj_folder_path',  action='store', default='objects/') # path to the folder containing the objects .csv file
+    parser.add_argument('--obj_folder_path',  action='store', default='objects/easy_setting/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
-    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=10) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=6) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
+    parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
+    parser.add_argument('--k_max', action='store', default=50) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=50) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=20) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=400) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=f'snapshots/models/worker_network_episode_0_epoch_1.pth') # path to the manager network snapshot
     parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=f'snapshots/models/worker_network_episode_7_epoch_10.pth') # path to the worker network snapshot
-    parser.add_argument('--new_episodes', action='store', default=10000) # number of episodes
+    parser.add_argument('--new_episodes', action='store', default=5000) # number of episodes
     parser.add_argument('--load_snapshot_manager', dest='load_snapshot_manager', action='store', default=False) # Load snapshot of the manager network
     parser.add_argument('--load_snapshot_worker', dest='load_snapshot_worker', action='store', default=False) # Load snapshot of the worker network
+    parser.add_argument('--batch_size', dest='batch_size', action='store', default=2) # Batch size for training
     args = parser.parse_args()
     
     # --------------- Start Train ---------------
     train(args) 
      # --------------- Start Test ---------------   NOT ready yet
     #test(args)
+
+
+
+#def test(args):
+
+#     # Setup environment
+#     #is_sim = args.is_sim        # per adesso is_sim lo lascio fisso a True, poi da definire a livello di logica quando si implementa il robot fisico
+
+#     # environment setup
+#     box_size=(0.4,0.4,0.3)
+#     resolution = 50
+#     env = Env(obj_dir = args.obj_folder_path, is_GUI=True, box_size=box_size, resolution = resolution)
+#     print('----------------------------------------')
+#     print('Setup of PyBullet environment: \nBox size: ',box_size, '\nResolution: ',resolution)
+
+#     # Generate csv file with objects 
+#     tot_num_objects = env.generate_urdf_csv()
+#     print('----------------------------------------')
+#     print('Generating CSV with objects')
+
+#     #-- Draw Box
+#     env.draw_box( width=5)
+
+#     #-- Load items 
+   
+#     item_numbers = np.random.randint(0, 100, size=K)
+#     item_ids = env.load_items(item_numbers)
+
+#     # volumes, sorted_ids = env.order_by_item_volume(item_ids)
+#     volume_bbox, bbox_order = env.order_by_bbox_volume(item_ids)
+
+#     # initialize tester
+#     tester = Tester(file_snapshot_manager='snapshots/models/manager_network_1.pth',file_snapshot_worker='snapshots/models/worker_network_1.pth', force_cpu=False, K=args.k_obj)
+
+#     print('--------------------------------------')
+#     print('Tester initialized')
+
+#     # main for loop for testing
+#     for i in range(args.k_obj):
+
+#         heightmap_box = env.box_heightmap()
+#         eps_height = 0.05 * box_size[2] # 5% of box height
+
+#         average_stability = []
+
+#         if np.size(env.unpacked) == 0:
+
+#             volume_items_packed, _ = env.order_by_item_volume(env.packed)
+
+#             print('------------------------- METRICS -------------------------')
+#             pyramidality = env.Pyramidality(env.packed, volume_items_packed, NewBoxHeightMap)
+#             compactness = env.Compactness(env.packed, volume_items_packed, NewBoxHeightMap)
+#             stability = np.mean(average_stability)
+#             print('Piramidality: ', pyramidality)  
+#             print('Compactness: ', compactness)
+#             print('Stability: ', stability)
+#             print('Number of packed items: ', len(env.packed))
+
+#         else:
+#             max_Heightmap_box = np.max(heightmap_box)
+#             is_box_full = max_Heightmap_box > box_size[2] - eps_height #valutare se sostituire con funzione chje guarda altezza di tutte le celle della heightmap
+            
+#             if  is_box_full:
+
+#                 volume_items_packed, _ = env.order_by_item_volume(env.packed)
+
+#                 print('------------------------- METRICS -------------------------')
+#                 pyramidality = env.Pyramidality(env.packed, volume_items_packed, NewBoxHeightMap)
+#                 compactness = env.Compactness(env.packed, volume_items_packed, NewBoxHeightMap)
+#                 stability = np.mean(average_stability)
+#                 print('Piramidality: ', pyramidality)  
+#                 print('Compactness: ', compactness)
+#                 print('Stability: ', stability)
+#                 print('Number of packed items: ', len(env.packed))
+
+#                 print('Box is full' )
+#                 break
+                
+#             else:
+
+#                 # select k_sort objects with largest bbox volume
+#                 unpacked_volume, unpacked_ids = env.order_by_bbox_volume(env.unpacked)
+
+#                 # select k-sort objects with largest bbox volume, compute their heightmaps for k_sort * 6 views and concatenate with box heightmap
+#                 k_sort = args.k_sort
+#                 #k_sort_ids = unpacked_ids[:k_sort]
+
+#                 principal_views = {
+#                     "front": [0, 0, 0],
+#                     "back": [180, 0, 0],
+#                     "left": [0, -90, 0],
+#                     "right": [0, 90, 0],
+#                     "top": [-90, 0, 0],
+#                     "bottom": [90, 0, 0]
+#                 }
+
+#                 views = []
+
+#                 # if number of object is less than k, update k       
+#                 if len(env.unpacked) < k_sort:
+#                     k_sort = len(env.unpacked)
+
+#                 for i in range(k_sort):
+#                     item_views = []
+
+#                     for view in principal_views.values():
+#                         Ht,_,_,_ ,_ = env.item_hm(unpacked_ids[i], view)
+#                         #env.visualize_object_heightmaps(id_, view, only_top = True )
+#                         #env.visualize_object_heightmaps_3d(id_, view, only_top = True )
+#                         item_views.append(Ht)
+
+#                     item_views = np.array(item_views)
+#                     views.append(item_views)    
+
+#                 views = np.array(views) # (K, 6, resolution, resolution) 
+
+#                 # prepare inputs for forward pass in the manager network to get the scores for next object to be packed
+#                 input1_selection_network = np.expand_dims(views, axis=0)  #(batch, K, 6, resolution, resolution)
+#                 input2_selection_network = np.expand_dims(np.expand_dims(heightmap_box,axis=0), axis=0)  #(batch, 1, resolution, resolution)
+#                 # forward pass in the manager network
+#                 chosen_item_index, score_values = tester.forward_manager_network(input1_selection_network,input2_selection_network, env)
+
+#                 next_obj = chosen_item_index
+
+#                 # discretize r,p,y angles
+#                 roll = np.arange(0,360,90) # 90 degrees discretization
+#                 pitch = np.arange(0,360,90)
+
+#                 roll_pitch_angles = [] # list of roll-pitch angles
+#                 hiehgtmaps_rp = [] # list of heightmaps for each roll-pitch angle
+
+#                 for r in roll:
+#                     for p in pitch:
+
+#                         roll_pitch_angles.append(np.array([r,p]))
+
+#                         orient = [r,p,0]
+#                         Ht, Hb, _, _ ,_= env.item_hm(next_obj, orient)
+                        
+#                         # add one dimension to concatenate Ht and Hb
+#                         Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
+#                         Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
+#                         heightmaps_rp.append(np.concatenate((Ht,Hb), axis=2))
+
+#                 heightmaps_rp = np.asarray(heightmaps_rp) # (16, res, res, 2)
+#                 roll_pitch_angles = np.asarray(roll_pitch_angles) # (16, 2)
+
+#                 # prepare inputs for forward pass in the worker network
+#                 input_placement_network_1 = np.expand_dims(heightmaps_rp, axis=0)  # (batch, 16, res, res, 2)
+#                 input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) #(batch, res, res, 1)
+
+#                 Q_values = tester.forward_worker_network(input_placement_network_1, input_placement_network_2, roll_pitch_angles)
+#                 print('Q values computed')
+
+#                 # check placement validity and update heightmap
+#                 indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing = tester.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
+#                 average_stability.append(stability_of_packing)
+#                 print('Packing item with id: ', next_obj)
+#                 heightmap_box = NewBoxHeightMap                 
+
+#     print('Testing done')
