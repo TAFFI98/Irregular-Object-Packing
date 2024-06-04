@@ -1,10 +1,10 @@
 import pybullet as p
 import pybullet_data
 import time
-
+import os
 #-- PyBullet Environment setup
 physicsClient = p.connect(p.GUI)
-
+os.environ['__GLX_VENDOR_LIBRARY_NAME'] = 'nvidia'
 p.setAdditionalSearchPath(pybullet_data.getDataPath()) 
 p.setGravity(0,0,-10)
 planeId = p.loadURDF("plane.urdf")

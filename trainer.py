@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from models import  placement_net, selection_net
+from models import  selection_placement_net
 from scipy import ndimage
 import cv2
 import numpy as np
@@ -23,16 +23,16 @@ import matplotlib.pyplot as plt
 import gc
 
 class Trainer(object):
-    def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot_worker = None, file_snapshot_manager = None, load_snapshot_worker = False, load_snapshot_manager = False ,K = 20, n_y = 16, epoch = 0, episode = 0):
+    def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
         
         self.n_y = n_y # number of discrete yaw orientations
         self.method = method # stage_1 or stage_2
         self.K = K # total number of items to be packed
         self.epoch = epoch # epoch counter
         self.episode = episode # episode counter
-        lr = 1e-4 # learning rate
-        momentum = 0.9 # momentum
-        weight_decay = 2e-5 # weight decay
+        self.lr = 1e-4 # learning rate
+        self.momentum = 0.9 # momentum
+        self.weight_decay = 2e-5 # weight decay
 
         # Check if CUDA can be used
         if torch.cuda.is_available() and not force_cpu:
@@ -45,73 +45,36 @@ class Trainer(object):
             print(f"{bold}CUDA is *NOT* detected. Running with only CPU.{reset}")
             self.use_cuda = False
 
-        # IN BOTH STAGES  TRAIN THE PLACEMENT NETWORK
-        if self.method == 'stage_1' or self.method == 'stage_2':
-            # INITIALIZE WORKER NETWORK
-            self.worker_network = placement_net(n_y = self.n_y, in_channel_unet = 3, out_channel = 1, use_cuda = self.use_cuda)
-                
-            # Initialize Huber loss
-            self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
-            self.future_reward_discount = future_reward_discount
+        # INITIALIZE  NETWORK
+        self.selection_placement_net = selection_placement_net(K = self.K, n_y = self.n_y, use_cuda = self.use_cuda, method = self.method)
+            
+        # Initialize Huber loss
+        self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
+        self.future_reward_discount = future_reward_discount
 
+        # Load pre-trained model
+        if load_snapshot:
+            self.selection_placement_net.load_state_dict(torch.load(file_snapshot))
+            print(f'{red}Pre-trained model snapshot loaded from: %s' % (file_snapshot),f'{reset}')
 
-            # Load pre-trained model
-            if load_snapshot_worker:
-                self.worker_network.load_state_dict(torch.load(file_snapshot_worker))
-                print('Pre-trained model snapshot loaded from: %s' % (file_snapshot_worker))
+        # Convert model from CPU to GPU
+        if self.use_cuda:
+                self.selection_placement_net = self.selection_placement_net.cuda()
 
-            # Convert model from CPU to GPU
-            if self.use_cuda:
-                    self.worker_network = self.worker_network.cuda()
-
-            # Set model to training mode
-            self.worker_network.train()
-            # Initialize optimizer
-            self.optimizer_worker = torch.optim.SGD(self.worker_network.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-            self.iteration = 0
-
-        # STAGE 2: TRAIN ALSO SELECTION NETWORK 
-        if self.method == 'stage_2':
-
-            # INITIALIZE SELECTION NETWORK
-            self.manager_network = selection_net(use_cuda = self.use_cuda, K = K)
-            # Load pre-trained model
-            if load_snapshot_manager:   
-                self.manager_network.load_state_dict(torch.load(file_snapshot_manager))
-                print('Pre-trained model snapshot loaded from: %s' % (file_snapshot_manager))
-            self.manager_network.train()
-            self.optimizer_manager = torch.optim.SGD(self.manager_network.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
-            # Convert model from CPU to GPU
-            if self.use_cuda:
-                self.manager_network = self.manager_network.cuda()
-
+        # Set model to training mode
+        self.selection_placement_net.train()
+        
+        # Initialize optimizers
+        self.optimizer_manager = torch.optim.SGD(self.selection_placement_net.selection_net.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
+        self.optimizer_worker = torch.optim.SGD(self.selection_placement_net.placement_net.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
+        self.iteration = 0
         
         print('---------------------------------------------------')
         print(f"{bold}TRAINER INITIALIZED.{reset}")
         print(f"{bold}METHOD: %s" % (self.method),f"{reset}")
-        print('Manager network snapshot: ' , file_snapshot_manager)
-        print('Worker network snapshot: ' , file_snapshot_worker)
         print('---------------------------------------------------')
-
-    # Compute forward pass through manager network to select the object to be packed
-    def forward_manager_network(self, input1_selection_network, input2_selection_network, env):
-        '''
-        input1_selection_network: numpy array of shape (batch, K, 6, resolution, resolution)
-        input2_selection_network: numpy array of shape (batch, 1, resolution, resolution)
-        env: environment object
-        output: 
-        chosen_item_index: index of the object to be packed
-        score_values: scores of the objects to be packed
-        '''
-        # Pass input data through model
-        chosen_item_index, score_values = self.manager_network.forward(torch.tensor(input1_selection_network, requires_grad=False),torch.tensor(input2_selection_network, requires_grad=False),env.loaded_ids)
-        print('----------------------------------------')
-        print(f'{bold}Computed Manager network predictions. The object to be packed has been chosen: {reset}', chosen_item_index)
-
-        return chosen_item_index, score_values
-
-    # Compute forward pass through worker network to select the pose of the object to be packed
-    def forward_worker_network(self, env, roll_pitch_angles, input_placement_network_1, input_placement_network_2):
+ 
+    def forward_network(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
         '''
         input_placement_network_1: numpy array of shape (batch, n_rp, res, res, 2) 
         input_placement_network_2: numpy array of shape (batch, res, res, 1) - bounding box heightmap
@@ -120,9 +83,10 @@ class Trainer(object):
         Q_values: predicted Q_values
         '''
         #-- placement network
-        Q_values  = self.worker_network.forward(env, roll_pitch_angles, torch.tensor(input_placement_network_1, requires_grad=False),torch.tensor(input_placement_network_2, requires_grad=False))
-
-        return  Q_values 
+        Q_values, selected_obj, orients  = self.selection_placement_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
+        selected_obj_pybullet = int(input2_selection_ids.clone().cpu().detach()[selected_obj]) 
+        orients = orients.cpu().detach().numpy()
+        return  Q_values , selected_obj_pybullet, orients
     
     # Compute target Q_target
     def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):
@@ -151,7 +115,7 @@ class Trainer(object):
         return current_reward, Q_target
 
     # Compute labels and backpropagate
-    def backprop(self, Q_values, Q_target, indices_rp, indices_y, pixel_x, pixel_y, optimizer_step):
+    def backprop(self, Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step):
             '''
             Q_max: predicted Q_values
             Q_target: target Q_value
@@ -163,26 +127,36 @@ class Trainer(object):
             This function computes the labels and backpropagates the loss across the networks
             '''
             
-            # Compute loss and backward pass
-            if self.method == 'stage_2':
-                self.optimizer_manager.zero_grad()
 
-            self.optimizer_worker.zero_grad()
             if self.use_cuda:
-                Q_target_tensor = torch.tensor(Q_target).cuda()
+                Q_target_tensor = torch.tensor(Q_target).cuda().float()
+                Q_target_tensor = Q_target_tensor.expand_as(Q_values[indices_rpy, pixel_x, pixel_y])
             else:
-                Q_target_tensor = torch.tensor(Q_target)
-            loss = self.criterion(Q_values[:, indices_rp, indices_y, pixel_x, pixel_y], Q_target_tensor)
+                Q_target_tensor = torch.tensor(Q_target).float()
+                Q_target_tensor = Q_target_tensor.expand_as(Q_values[ indices_rpy, pixel_x, pixel_y])
+            
+            loss = self.criterion(Q_values[indices_rpy, pixel_x, pixel_y], Q_target_tensor)
             loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
             print(f'{blue_light}------------------ Training loss: %f' % (loss),f'------------------{reset}')
             
-            if self.epoch % 4 == 0 and self.method == 'stage_2':
-                print(f'{blue_light}--> Backpropagating loss on manager network{reset}')
-                self.optimizer_manager.step()
-            if optimizer_step== True:
-                print(f'{blue_light}-->Backpropagating loss on worker network{reset}')
+            #Inspect gradients
+            print('WORKER NETWORK GRAIDENTS:')
+            for name, param in self.selection_placement_net.named_parameters():
+                if param.grad is not None:
+                    print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+                else:
+                    print(f"Layer: {name} | No gradients computed")
+ 
+            if optimizer_step == True:
+                print(f'{blue_light}-->Backpropagating loss on worker network {reset}')
                 self.optimizer_worker.step()
+                self.optimizer_worker.zero_grad()
                 self.epoch = self.epoch+1
+
+                if self.epoch % 4 == 0 and self.method == 'stage_2':
+                    print(f'{blue_light}--> Backpropagating loss on manager network{reset}')
+                    self.optimizer_manager.step()
+                    self.optimizer_manager.zero_grad()
 
             if self.use_cuda:
                 torch.cuda.empty_cache()
@@ -263,11 +237,10 @@ class Trainer(object):
         This function visualizes the Q_values using colormaps
         '''
         Q_values = Q_values.cpu().detach().numpy()
-        num_rotations = Q_values.shape[1]
-        num_yaw = Q_values.shape[2]
-        resolution = Q_values.shape[3]
+        num_rotations = Q_values.shape[0]
+        resolution = Q_values.shape[1]
         grid_rows = int(num_rotations/4)
-        grid_cols = int(num_yaw/4)
+        grid_cols = int(num_rotations/4)
         border_size = 10  # Size of the border in pixels
 
         # Adjust the size of the canvas to account for the borders
@@ -276,7 +249,7 @@ class Trainer(object):
 
         for i in range(grid_rows): 
             for j in range(grid_cols):  
-                Q_values_vis = Q_values[0, i*4, j, :, :].copy()
+                Q_values_vis = Q_values[j, :, :].copy()
                 Q_values_vis = np.clip(Q_values_vis, 0, 1)
                 Q_values_vis = cv2.applyColorMap((Q_values_vis*255).astype(np.uint8), cv2.COLORMAP_JET)
 
@@ -296,11 +269,11 @@ class Trainer(object):
         return canvas
         
     # Check if the predicted pose is allowed: Collision with box margins and exceeded height of the box
-    def check_placement_validity(self, env, Q_values, roll_pitch_angles, BoxHeightMap, chosen_item_index):
+    def check_placement_validity(self, env, Q_values, orients, BoxHeightMap, chosen_item_index):
         '''
         env: environment object
         Q_values: predicted Q_values #[batch, n_y, n_rp, res, res]
-        roll_pitch_angles: numpy array of shape (n_rp, 2) - roll and pitch angles
+        roll_pitch_angles: numpy array of shape (n_rp*n_y, 2) - roll pitch yaw angles
         BoxHeightMap: heightmap of the box
         chosen_item_index: index of the object to be packed
 
@@ -339,23 +312,24 @@ class Trainer(object):
         for k,i in enumerate(batch_indices):
             index = torch.unravel_index(i, Q_size)
             # Extract indices along each dimension
-            indices_y = int(index[1])
-            indices_rp = int(index[2])
-            pixel_x = int(index[3])
-            pixel_y = int(index[4])
+            indices_rpy = int(index[0])
+            pixel_x = int(index[1])
+            pixel_y = int(index[2])
 
-            r = float(roll_pitch_angles[indices_rp,0])
-            p = float(roll_pitch_angles[indices_rp,1])
-            y = float(indices_y * (360 / self.n_y))
+            r = float(orients[indices_rpy,0])
+            p = float(orients[indices_rpy,1])
+            y = float(orients[indices_rpy,2])
 
             # Pack chosen item with predicted pose
             target_euler = [r,p,y]
             # Compute z coordinate
             _,Hb_selected_obj, obj_length, obj_width, offsets = env.item_hm(chosen_item_index, target_euler)
             offset_pointminz_COM = offsets[4]
+
             # Uncomment to visualize the heightmap of the predicted pose of the object and the difference between the heightmap of the box and the object
             #env.visualize_object_heightmaps(Hb_selected_obj, None, target_euler, only_top = True)
             #env.visualize_object_heightmaps_3d(BoxHeightMap-Hb_selected_obj, None, target_euler, only_top = True)
+
             z_lowest_point = env.get_z(BoxHeightMap, Hb_selected_obj, pixel_x, pixel_y, obj_length, obj_width)
             del(Hb_selected_obj, BoxHeightMap)
             gc.collect()
@@ -402,39 +376,32 @@ class Trainer(object):
                     print(f'{purple_light}>Stability is:', stability_of_packing,f'{reset}')
                     env.removeAABB(limits_obj_line_ids)
                     packed = True
-                    Q_max = Q_values[0,indices_y,indices_rp,pixel_x,pixel_y]
-                    return indices_rp, indices_y, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed,  float(Q_max.cpu())
+                    Q_max = Q_values[indices_rpy,pixel_x,pixel_y]
+                    return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed,  float(Q_max.cpu())
             
         packed = False
-        Q_max = Q_values[0,indices_y,indices_rp,pixel_x,pixel_y]
-        return indices_rp, indices_y, pixel_x, pixel_y, False, 0 , packed, float(Q_max.cpu())
+        Q_max = Q_values[indices_rpy,pixel_x,pixel_y]
+        return indices_rpy, pixel_x, pixel_y, False, 0 , packed, float(Q_max.cpu())
 
         
     
-    def save_snapshot(self, optimizer_step, max_snapshots=5):
+    def save_snapshot(self, max_snapshots=5):
         """
         Save snapshots of the trained models.
         """
-        if optimizer_step == True:
-            os.makedirs('snapshots/models/', exist_ok=True)
-            torch.save(self.worker_network.state_dict(), f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth')
+        os.makedirs('snapshots/models/', exist_ok=True)
+        torch.save(self.selection_placement_net.state_dict(), f'snapshots/models/network_episode_{self.episode}_epoch_{self.epoch}.pth')
 
-            # If there's a manager network, save it as well
-            if self.method == 'stage_2':
-                torch.save(self.manager_network.state_dict(), f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth')
+        # Get a list of all files in the directory
+        files = glob.glob(os.path.join('snapshots/models/', '*'))
 
+        # If there are more than 5 files
+        if len(files) > max_snapshots:
+                # Sort the files by modification time
+                files.sort(key=os.path.getmtime)
 
-            # Get a list of all files in the directory
-            files = glob.glob(os.path.join('snapshots/models/', '*'))
+                # Remove the oldest file
+                os.remove(files[0])
 
-            # If there are more than 5 files
-            if len(files) > max_snapshots:
-                    # Sort the files by modification time
-                    files.sort(key=os.path.getmtime)
+        return  f'snapshots/models/network_episode_{self.episode}_epoch_{self.epoch}.pth'
 
-                    # Remove the oldest file
-                    os.remove(files[0])
-
-            return f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth', f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth'
-        else:
-            return f'snapshots/models/manager_network_episode_{self.episode}_epoch_{self.epoch}.pth', f'snapshots/models/worker_network_episode_{self.episode}_epoch_{self.epoch}.pth'

@@ -35,19 +35,45 @@ Q_values , [pixel_x,pixel_y,r,p,y] = worker_network(torch.tensor(input_placement
 Q_values ---> (batch, n_y, n_rp, res, res) - Q values for the discretized actions
 
 
-'''  
+''' 
 def even_odd_sign(n):
     if n % 2 == 0:
         return 1
     else:
         return -1
-    
-class selection_net(nn.Module):
-    def __init__(self, use_cuda, K): 
-        super(selection_net, self).__init__()
-    
+
+class selection_placement_net(nn.Module):
+    def __init__(self, use_cuda, K, n_y, in_channel_unet = 3, out_channel = 1, method = 'stage_1'):
+        super(selection_placement_net, self).__init__()
         self.use_cuda = use_cuda
         self.K = K
+        self.n_y = n_y
+        self.selection_net = selection_net(self.use_cuda, self.K, method)
+        self.placement_net = placement_net(self.n_y, in_channel_unet, out_channel, self.use_cuda)
+        if self.use_cuda == True:
+            self.selection_net.cuda()
+            self.placement_net.cuda()
+    
+    def forward(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
+        # Compute score values using the selection network
+        score_values = self.selection_net(input1_selection_HM_6views, boxHM, input2_selection_ids)
+        # Apply Gumbel-Softmax to the score values
+        alpha = 900
+        attention_weights = torch.softmax(alpha * score_values,dim =1)
+        while torch.max(attention_weights).item() == 1:
+                    alpha = alpha - 100
+                    attention_weights = torch.softmax(alpha * score_values, dim =1)
+
+        # Compute Q-values using the placement network
+        Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
+        return Q_values, selected_obj, orients
+    
+class selection_net(nn.Module):
+    def __init__(self, use_cuda, K, method ): 
+        super(selection_net, self).__init__()
+        self.use_cuda = use_cuda
+        self.K = K
+        self.method = method
         
         # Initialize network trunks with ResNet pre-trained on ImageNet
         self.backbones = nn.ModuleList([self.initialize_backbone() for _ in range(self.K)])
@@ -55,6 +81,8 @@ class selection_net(nn.Module):
         # Add a spatial pooling layer to pool the (7, 7) features
         self.spatial_pooling = nn.AvgPool2d(kernel_size=(7, 7))
         
+        self.final_selection_layers = final_conv_select_net(self.use_cuda, self.K)
+
         # Freeze the parameters of the backbone networks
         for backbone in self.backbones:
             for param in backbone.parameters():
@@ -75,50 +103,65 @@ class selection_net(nn.Module):
             backbone,
             nn.AdaptiveAvgPool2d((7, 7))
         )
-        
+        device = torch.device('cuda' if self.use_cuda else 'cpu')
+        backbone = backbone.to(device)
+
         return backbone
 
     def forward(self, input_1, input_2, item_ids):
+        if self.use_cuda:
+                input_1 = input_1.cuda()
+                input_2 = input_2.cuda()
+                item_ids = item_ids.cuda()
 
-        concatenated_features,k_already_packed = [],[]
-
-        if self.use_cuda == True :
-            input_1 = input_1.cuda()
-            input_2 = input_2.cuda()
-        for k in range(self.K):
-            # Concatenate input_1 with input_2 along dimension=-3
-            if not torch.any(input_1[:, k, :, :, :][input_1[:, k, :, :, :]!= 0]):
-                k_already_packed.append(k)
-                concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
-                # Forward pass through the backbone network
-                backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,7,7)
-            else:
-                concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
-                # Forward pass through the backbone network
-                backbone_output = self.backbones[k](concatenated_input.float())#(batch,512,7,7)
-            
-            # Apply spatial pooling to the features
-            pooled_features = self.spatial_pooling(backbone_output)           #(batch,512,1,1)
-            pooled_features = pooled_features.squeeze(dim=-1).squeeze(dim=-1) #(batch,512)
-
-            concatenated_features.append(pooled_features) 
+        if self.method == 'stage_1':
+            # Create a new tensor with the same shape as existing_tensor, filled with zeros
+            score_values = torch.zeros((1, self.K))
+            # Set the first element to 1
+            score_values[0, 0] = 1
+            if self.use_cuda:
+                score_values = score_values.cuda()
         
-        # Concatenate the features from all backbones
-        concatenated_features = torch.stack(concatenated_features, dim=1)      #(batch,K,512)
-        final_selection_layers = final_conv_select_net(self.use_cuda,self.K)
-        score_values = final_selection_layers(concatenated_features)            #(batch,K)
-        # Set to zero the fetures of objects already packed
-        for kk in k_already_packed:
-            score_values[:,kk] = 0.0
-        
-        chosen_item_index = torch.argmax(score_values, dim=1)
-        chosen_item_index_pybullet = item_ids[chosen_item_index]
-        return chosen_item_index_pybullet, score_values
+        elif self.method == 'stage_2':
+            concatenated_features = []
+            zero_masks = []
+            for k in range(self.K):
+                # Check if the input is all zeros
+                is_all_zero = torch.all(input_1[:, k, :, :, :] == 0)
+                zero_masks.append(is_all_zero)
+
+                # Show the selected tensor
+                # fig, axs = plt.subplots(1, 1, figsize=(10, 5))
+                # axs.imshow(input_1[0, k, 0, :, :].detach().cpu().numpy(), cmap='viridis', origin='lower')
+                # axs.set_xlabel('X')
+                # axs.set_ylabel('Y')
+                # plt.tight_layout()
+                # plt.show()
+
+                concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
+                backbone_output = self.backbones[k](concatenated_input.float())
+                pooled_features = self.spatial_pooling(backbone_output)
+                pooled_features = pooled_features.squeeze(dim=-1).squeeze(dim=-1)
+                concatenated_features.append(pooled_features)
+
+            concatenated_features = torch.stack(concatenated_features, dim=1)
+            score_values = self.final_selection_layers(concatenated_features)
+
+            # Convert zero_masks to a tensor and expand to match the shape of score_values
+            zero_masks_tensor = torch.tensor(zero_masks, device=input_1.device).float().unsqueeze(0)
+            zero_masks_tensor = zero_masks_tensor.expand_as(score_values)
+
+            # Ensure score_values for all-zero inputs remain zero
+            score_values = score_values * (1 - zero_masks_tensor)
+
+        return score_values
 
 class final_conv_select_net(nn.Module):
     def __init__(self, use_cuda, K):
         super(final_conv_select_net, self).__init__()
+
         self.num_classes = K
+
         # Define fully connected layers for each branch
         self.fc_layers = nn.ModuleList([self.create_fc_layers() for _ in range(K)])
         
@@ -144,7 +187,9 @@ class final_conv_select_net(nn.Module):
         )
 
     def forward(self, x):
+
         outputs = []
+
         # Loop through each branch
         for k in range(self.num_classes):
             # Get the features for the k-th branch
@@ -162,7 +207,7 @@ class final_conv_select_net(nn.Module):
         return concatenated_outputs
     
 class placement_net(nn.Module):
-    def __init__(self, n_y, in_channel_unet = 3, out_channel = 1, use_cuda= False):
+    def __init__(self, n_y, in_channel_unet = 3, out_channel = 1, use_cuda = True):
         super(placement_net, self).__init__()
         self.n_y = n_y
         self.use_cuda = use_cuda
@@ -189,90 +234,128 @@ class placement_net(nn.Module):
         # Without an activation function, the output values of the heatmap produced by the final convolutional 
         # layer can assume any real number, ranging from negative to positive infinity.
 
-    def forward(self, env, roll_pitch_angles, input1, input2):
-        batch_size = input1.size(0)
-        n_rp = input1.size(1)
+    def forward(self, roll_pitch_angles, input1, input2,  attention_weights):
+        if self.use_cuda:
+            input1 = input1.cuda()
+            input2 = input2.cuda()
 
+        batch_size = input1.size(0)
+        n_rp = input1.size(2)
+        K = input1.size(1)
         # Reshape input2 to match the batch size of input1
-        input2 = input2.expand(batch_size, -1, -1, -1)
+        input2 = input2.permute(0, 2, 3, 1).expand(batch_size, -1, -1, -1)
+        # Reshape the attention weights to match the dimensions of the tensor
+        weighted_input = input1 * attention_weights.view(1, K, 1, 1, 1, 1)
+        selected_tensor = weighted_input.sum(dim=1, keepdim=True)
+
+        # Show the selected tensor
+        # fig, axs = plt.subplots(1, 3, figsize=(10, 5))
+        # axs[0].imshow(selected_tensor[0,0,0,:,:,0].detach().cpu().numpy(), cmap='viridis', origin='lower')
+        # axs[0].set_xlabel('X')
+        # axs[0].set_ylabel('Y')
+        # axs[1].imshow(input1[0,int(torch.argmax(attention_weights).cpu().numpy()),0,:,:,0].detach().cpu().numpy(), cmap='viridis', origin='lower')
+        # axs[1].set_xlabel('X')
+        # axs[1].set_ylabel('Y')
+        # axs[2].imshow(input2[0,:,:,0].detach().cpu().numpy(), cmap='viridis', origin='lower')
+        # axs[2].set_xlabel('X')
+        # axs[2].set_ylabel('Y')
+        # plt.tight_layout()
+        # plt.show()
+
+        selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
         
-        # Apply rotations to input1
-        rows = []
-        for j in range(n_rp):
-            input1_rp = input1[:,j,:,:,:] #[batch,res,res,2]
-            score_matrices = []           #[batch,res,res,3,ny]
-            for i in range(self.n_y): 
-                angle =  i * (360 / self.n_y)
-                orient = list(roll_pitch_angles[j]) + [angle]
-                #print('Worker network evaluating orientation: ', orient)
-                unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orient, input2, batch_size, i, env) #[batch,3,res,res]
-                unet_output = self.unet_forward(unet_input)
-                score_matrices.append(unet_output)# list of score matrices [batch,res,res]-- one for each yaw
-            
-            rows.append(torch.stack(score_matrices, dim=1)) #[batch, n_rp, res, res]    
+        angles_yaw = torch.arange(0, 360, 360 / self.n_y).unsqueeze(0).to(input1.device)
+        # Expand and reshape angles_yaw
+        angles_yaw_expanded = angles_yaw.unsqueeze(0).expand(1,n_rp,self.n_y).reshape(-1, 1) # torch.Size([1, n_y])
+
+        # Expand and reshape roll_pitch_angles_expanded
+        roll_pitch_angles_expanded = roll_pitch_angles.unsqueeze(1).expand(-1, self.n_y, -1).reshape(-1, 2).to(input1.device) # torch.Size([n_rp, 2])
+
+        # Concatenate along the last dimension
+        orients = torch.cat((roll_pitch_angles_expanded, angles_yaw_expanded), dim=-1)  # torch.Size([n_rp*n_y, 3])
         
-        Q_values = torch.stack(rows, dim=1) #[batch, n_y, n_rp, res, res]
- 
-        return Q_values
+        input1_rp = selected_tensor.squeeze(1).unsqueeze(2).expand(-1, -1, self.n_y, -1, -1, -1) # torch.Size([1, n_rp, n_y, res, res, 2])
+        
+        unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orients, input2 ) # torch.Size([n_rp*n_y, res, res, 3])
+        Q_values = self.unet_forward(unet_input) # torch.Size([n_rp*n_y, res, res])
+        return Q_values, selected_obj, orients
 
     def unet_forward(self, x):
-        ''' Downsample'''
-        x = self.layer1_conv_block(x)
-        f1 = x
-        x = self.layer2_Downsample(x)
-        x = self.layer3_conv_block(x)
-        f2 = x
-        x = self.layer4_Downsample(x)
-        x = self.layer5_conv_block(x)
-        f3 = x
-        x = self.layer6_Downsample(x)
-        x = self.layer7_conv_block(x)
-        f4 = x
-        ''' Upsample'''
-        x = self.layer8_Downsample(x)
-        x = self.layer9_conv_block(x)
-        x = self.layer10_Upsample(x, f4)
-        x = self.layer11_conv_block(x)
-        x = self.layer12_Upsample(x, f3)
-        x = self.layer13_conv_block(x)
-        x = self.layer14_Upsample(x, f2)
-        x = self.layer15_conv_block(x)
-        x = self.layer16_Upsample(x, f1)
-        x = self.layer17_conv_block(x)
+        ''' Reshape input '''
+        x = x.permute(0, 3, 1, 2) # torch.Size([nrp*ny, 3, res, res])
+        outputs = []
+        for i in range(x.shape[0]):
+            xi = x[i].unsqueeze(0) # torch.Size([1, 3, res, res])
+            ''' Downsample'''
+            xi = self.layer1_conv_block(xi)
+            f1 = xi
+            xi = self.layer2_Downsample(xi)
+            xi = self.layer3_conv_block(xi)
+            f2 = xi
+            xi = self.layer4_Downsample(xi)
+            xi = self.layer5_conv_block(xi)
+            f3 = xi
+            xi = self.layer6_Downsample(xi)
+            xi = self.layer7_conv_block(xi)
+            f4 = xi
+            ''' Upsample'''
+            xi = self.layer8_Downsample(xi)
+            xi = self.layer9_conv_block(xi)
+            xi = self.layer10_Upsample(xi, f4)
+            xi = self.layer11_conv_block(xi)
+            xi = self.layer12_Upsample(xi, f3)
+            xi = self.layer13_conv_block(xi)
+            xi = self.layer14_Upsample(xi, f2)
+            xi = self.layer15_conv_block(xi)
+            xi = self.layer16_Upsample(xi, f1)
+            xi = self.layer17_conv_block(xi)
 
-        x = self.layer18(x)
-        return torch.squeeze(x, dim=1) #[batch,res,res]
-    
-    def rotate_tensor_and_append_bbox(self, input1, orient, input2, batch_size, i , env):
- 
+            xi = self.layer18(xi) # torch.Size([1, 1, res, tes])
+            outputs.append(torch.squeeze(xi)) # torch.Size([res, res])
+
+        output = torch.stack(outputs, dim=0) # torch.Size([nrp*ny, res, res])
+        return output 
+
+
+    def rotate_tensor_and_append_bbox(self, input1, orient, input2):
         # Generate rotation matrix
-        angle = orient[2] 
-        rotation_matrix = np.asarray([[even_odd_sign(i)* np.cos(angle),even_odd_sign(i)* -np.sin(angle), 0],[even_odd_sign(i)*np.sin(angle), even_odd_sign(i)*np.cos(angle), 0]])
-        rotation_matrix.shape = (2,3,1)
-        rotation_matrix = torch.from_numpy(rotation_matrix).permute(2,0,1).float() #[1,2,3]
-        rotation_matrix = rotation_matrix.repeat(batch_size, 1, 1)
+        angles = orient[:, 2] 
+        rotation_matrices = []
+        for i, angle in enumerate(angles):
+            if self.use_cuda == True:
+                angle = angle.cuda()
+                rotation_matrix = torch.stack([
+                    even_odd_sign(i) * torch.cos(angle), even_odd_sign(i) * -torch.sin(angle), torch.tensor(0.).cuda(),
+                    even_odd_sign(i) * torch.sin(angle), even_odd_sign(i) * torch.cos(angle), torch.tensor(0.).cuda()
+                ]).reshape(2, 3)
+            else:
+                rotation_matrix = torch.stack([
+                    even_odd_sign(i) * torch.cos(angle), even_odd_sign(i) * -torch.sin(angle), torch.tensor(0.),
+                    even_odd_sign(i) * torch.sin(angle), even_odd_sign(i) * torch.cos(angle), torch.tensor(0.)
+                ]).reshape(2, 3)
+
+            rotation_matrix = rotation_matrix.unsqueeze(0) #[1,2,3]
+            rotation_matrices.append(rotation_matrix)
+
+        rotation_matrix = torch.cat(rotation_matrices, dim=0) # [batch,2,3]
         # put channels before in the input 1 
-        input1 = input1.permute(0,3,1,2).float() # [batch,2,res,res]
-        input2 = input2.permute(0,3,1,2).float() # [batch,1,res,res]
+        input1 = input1.permute(0,1,2,5,3,4).reshape(-1, *input1.shape[3:]) # [batch*nrp*ny, res, res, 2]
+        input2 = input2.expand(input1.shape[0], *input2.shape[1:]) # [batch*nrp*ny, res, res, 1]
+
         if self.use_cuda == True :
-                    flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False).cuda(), input1.size(),align_corners=True)
-                    rotated_hm = F.grid_sample(Variable(input1, requires_grad=False).cuda(), flow_grid_before, mode='nearest', align_corners=True) #[batch,2,res,res]
-                    rotated_hm = rotated_hm.cuda()
-                    input2 = input2.cuda()
+            flow_grid_before = F.affine_grid(rotation_matrix.cuda(), input1.size(),align_corners=True)
+            rotated_hm = F.grid_sample(input1.cuda(), flow_grid_before, mode='nearest', align_corners=True) #[batch*nrp*ny, res, res, 2]
+            rotated_hm = rotated_hm.cuda()
+            input2 = input2.cuda()
         elif self.use_cuda == False:
-                    flow_grid_before = F.affine_grid(Variable(rotation_matrix, requires_grad=False), input1.size(),align_corners=True)
-                    rotated_hm = F.grid_sample(Variable(input1, requires_grad=False), flow_grid_before, mode='nearest',align_corners=True) #[batch,2,res,res]
-            
-        # -----> Uncomment to Show the rotated heightmaps
-        # env.visualize_object_heightmaps(input1[0,0,:,:].detach().cpu().numpy(), input1[0,1,:,:].detach().cpu().numpy(), [orient[0],orient[1],0], only_top = False)
-        # env.visualize_object_heightmaps(rotated_hm[0,0,:,:].detach().cpu().numpy(), rotated_hm[0,1,:,:].detach().cpu().numpy(), orient, only_top = False)
-        # env.visualize_object_heightmaps(input2[0, 0, :, :].detach().cpu().numpy(), None, [0,0,0], only_top = True)
-        
+            flow_grid_before = F.affine_grid(rotation_matrix, input1.size(),align_corners=True)
+            rotated_hm = F.grid_sample(input1, flow_grid_before, mode='nearest',align_corners=True) #[batch*nrp*ny, res, res, 2]
+
         # Concatenate the rotated heightmap with the box heightmap
-        input_unet = torch.cat([rotated_hm,input2], dim=1)
+        input_unet = torch.cat([rotated_hm,input2], dim=-1)
 
-        return input_unet
-
+        return input_unet.float()
+            
 class Downsample(nn.Module):
     '''
     The Downsample class is responsible for reducing the spatial dimensions of the feature maps by half while maintaining the number of channels.
@@ -330,9 +413,54 @@ class conv_block(nn.Module):
     @staticmethod
     def init_weights(m):
         if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-            #init.xavier_uniform_(m.weight)
             init.kaiming_uniform_(m.weight, nonlinearity='relu')
             if m.bias is not None:
                 init.zeros_(m.bias)
 
     
+if __name__ == '__main__':
+
+
+    batch_size = 1
+    K = 20
+    resolution = 400
+    n_rp = 20
+
+    input1_selection_HM_6views = torch.randn(batch_size, K, 6, resolution, resolution).cuda()  # object heightmaps at 6 views
+    boxHM = torch.randn(batch_size, 1, resolution, resolution).cuda()                   # box heightmap
+    input2_selection_ids = torch.randn(K).cuda()                                               # list of loaded ids
+    input1_placement_rp_angles = torch.randn(n_rp,2).cuda()                                   # roll-pitch angles
+    input2_placement_HM_rp = torch.randn(batch_size, K, n_rp, resolution, resolution, 2).cuda()    # object heightmaps at different roll-pitch angles
+
+    model = selection_placement_net(use_cuda=True, K=K, n_y = 4)
+    model.train()
+
+    Q_values, selected_obj, orients = model(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
+
+    indices_rpy, pixel_x, pixel_y =   0, int(resolution/2), int(resolution/2)
+    Q_target = 0.1
+
+    Q_target_tensor = torch.tensor(Q_target).float()
+    Q_target_tensor = Q_target_tensor.expand_as(Q_values[indices_rpy, pixel_x, pixel_y])
+    Q_target_tensor = Q_target_tensor.cuda() if model.use_cuda == True else Q_target_tensor
+    criterion = torch.nn.SmoothL1Loss(reduction='mean') 
+    loss = criterion(Q_values[ indices_rpy, pixel_x, pixel_y], Q_target_tensor)
+    loss.backward()                                                     # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+    
+
+    # Inspect gradients
+    print(' NETWORK GRAIDENTS:')
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+        else:
+            print(f"Layer: {name} | No gradients computed")
+
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    model = placement_net(n_y=4, in_channel_unet=3, out_channel=1, use_cuda=False)
+    print(count_parameters(model))
+
+    model = selection_net(use_cuda=False, K=3)
+    print(count_parameters(model))

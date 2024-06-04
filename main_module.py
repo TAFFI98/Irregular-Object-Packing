@@ -1,27 +1,20 @@
 from fonts_terminal import *
-import time
-import os
 import random
-import threading
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy as sc
 import cv2    
-import pybullet_data
 import pybullet as p
 import gc
 from trainer import Trainer
 from tester import Tester
 from env import Env
-import logging
-
+import torch
 def train(args):
 
     # Initialize snapshots
-    manager_snap = args.manager_snapshot
-    worker_snap = args.worker_snapshot
-
+    snap = args.snapshot
+    
     # Environment setup
     box_size = args.box_size
     resolution = args.resolution
@@ -31,18 +24,24 @@ def train(args):
     batch_size = args.batch_size
 
     for new_episode in range(args.new_episodes):
-        
+        # Check if k_min is greater than 2
+        if args.k_min < 2:
+            raise ValueError("k_min must be greater than or equal to 2")
+       
+        # Define number of items for current episode
+        K_obj = random.choice(list(range(args.k_min,args.k_max+1)))
+        k_sort = args.k_sort
+
         # Initialize episode and epochs counters
         if 'trainer' not in locals():
                 
                 # First time the main loop is executed
                 if args.stage == 1:
                     chosen_train_method = 'stage_1'
-                    load_snapshot_manager_ = False
-                    if args.load_snapshot_worker == True and worker_snap!= None:
-                        load_snapshot_worker_ = True
-                        episode = int(worker_snap.split('_')[-3])
-                        epoch = int(worker_snap.split('_')[-1].strip('.pth'))
+                    if args.load_snapshot == True and snap!= None:
+                        load_snapshot_ = True
+                        episode = int(snap.split('_')[-3])
+                        epoch = int(snap.split('_')[-1].strip('.pth'))
                         sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
@@ -50,7 +49,7 @@ def train(args):
                         print('----------------------------------------')
                         print('----------------------------------------')
                     else:
-                        load_snapshot_worker_ = False
+                        load_snapshot_ = False
                         episode = 0
                         epoch = 0
                         sample_counter = 0
@@ -62,10 +61,10 @@ def train(args):
 
                 elif args.stage == 2:
                     chosen_train_method = 'stage_2'
-                    if args.load_snapshot_worker == True and worker_snap!= None:
-                        load_snapshot_worker_ = True
-                        episode = int(worker_snap.split('_')[-3])
-                        epoch = int(worker_snap.split('_')[-1].strip('.pth'))
+                    if args.load_snapshot == True and snap!= None:
+                        load_snapshot_ = True
+                        episode = int(snap.split('_')[-3])
+                        epoch = int(snap.split('_')[-1].strip('.pth'))
                         sample_counter = 0                        
                         print('----------------------------------------')
                         print('----------------------------------------')
@@ -73,7 +72,7 @@ def train(args):
                         print('----------------------------------------')
                         print('----------------------------------------')
                     else:
-                        load_snapshot_worker_ = False
+                        load_snapshot_ = False
                         episode = 0
                         epoch = 0
                         sample_counter = 0
@@ -82,34 +81,21 @@ def train(args):
                         print(f"{purple}Starting from scratch --> EPISODE: ", episode,f"{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
-                    if args.load_snapshot_manager == True and manager_snap!= None:
-                        load_snapshot_manager_ = True
-                    else:   
-                        load_snapshot_manager_ = False
-
-
+                # Initialize trainer
+                trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                            load_snapshot = load_snapshot_, file_snapshot = snap,
+                            K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
         else:
                 # Not the first time the main loop is executed
                 episode = new_episode
+                trainer.episode = episode   
                 print('----------------------------------------')
                 print('----------------------------------------')
                 print(f"{purple}NEW EPISODE: ", episode,f"{reset}")                
                 print('----------------------------------------')
                 print('----------------------------------------')
-           
-
-        # Define number of items for current episode
-        if args.k_min < 2:
-            raise ValueError("k_min must be greater than or equal to 2")
-        K_obj = random.choice(list(range(args.k_min,args.k_max+1)))
-        k_sort = min(args.k_sort, K_obj)
-
-        # Initialize trainer
-        trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
-                load_snapshot_manager = load_snapshot_manager_, load_snapshot_worker = load_snapshot_worker_, 
-                file_snapshot_manager = manager_snap, file_snapshot_worker = worker_snap,
-                K=k_sort, episode = episode, epoch = epoch)
-
+                   
+        # Initialize environment
         env = Env(obj_dir = args.obj_folder_path, is_GUI = args.gui, box_size=box_size, resolution = resolution)
         print('Set up of PyBullet Simulation environment: \nBox size: ',box_size, '\nResolution: ',resolution)
         
@@ -117,18 +103,17 @@ def train(args):
         print('----------------------------------------') 
         K_available = env.generate_urdf_csv()
         print('----------------------------------------')
-        #-- Draw Box
+        
+        # Draw Box
         env.draw_box(width=5)
 
-        #-- Load items 
-        #item_numbers = np.array([17,19]) #to debug
+        # Load items 
         item_numbers =  np.random.choice(np.arange(start=0, stop=K_available, step=1), K_obj, replace=True)
         item_ids = env.load_items(item_numbers)
         if len(item_ids) == 0:
             raise ValueError("NO ITEMS LOADED!!")
             
-        # volumes, sorted_ids = env.order_by_item_volume(item_ids)
-        _, bbox_order = env.order_by_bbox_volume(item_ids)
+        _, bbox_order = env.order_by_bbox_volume(env.unpacked)
         for i in range(500):
             env.p.stepSimulation() 
 
@@ -145,7 +130,7 @@ def train(args):
         eps_height = 0.05 * box_size[2] # 5% of box height
         print(f"{purple}Worker network already trained on ", epoch, f"EPOCHS{reset}")
         # loop over the loaded objects
-
+        tried_obj = []
         for i in range(K_obj):
             print(f"{purple}Packing iteration for current episode: ", i, "out of ", K_obj, f"{reset}") 
             heightmap_box = env.box_heightmap()
@@ -157,8 +142,7 @@ def train(args):
             unpacked = env.unpacked
             if len(unpacked) == 0:
                 print(f"{bold}{red}NO MORE ITEMS TO PACK --> END OF EPISODE{reset}") 
-                manager_snapshot = args.manager_snapshot
-                manager_snapshot = args.manager_snapshot
+                snapshot = args.snapshot
                 continue
             else:
                 print(f"{bold}There are still ", len(unpacked), f" items to be packed.{reset}")
@@ -168,173 +152,222 @@ def train(args):
             is_box_full = max_Heightmap_box > box_size[2] - eps_height
             if is_box_full: 
                 print(f"{bold}{red}BOX IS FULL --> END OF EPISODE{reset}")
-                manager_snapshot = args.manager_snapshot
-                manager_snapshot = args.manager_snapshot
+                snapshot = args.snapshot
                 continue
             else:
                 print(f"{bold}Max box height not reached yet.{reset}")
 
             
+            principal_views = {"front": [0, 0, 0],"back": [180, 0, 0],"left": [0, -90, 0],"right": [0, 90, 0],"top": [-90, 0, 0],"bottom": [90, 0, 0]}
+            views = []
+                        
+            # discretize r,p,y angles --> 90 degrees discretization
+            roll, pitch = np.arange(0,360, 360/args.n_rp), np.arange(0,360, 360/args.n_rp) 
+            heightmaps_rp = []    # list of heightmaps for each roll-pitch angle
+            
+            
             # selection strategy according to the chosen stage
             if args.stage == 1:
                 # pack largest object first
                 print('---------------------------------------')
-                print(f"{bold}\n1. SELECTION: Object selection according to largest bounding box volume{reset}")
-                next_obj = bbox_order[i]
-                print("Selected object id: ", next_obj)
+                print(f"{bold}\n1. SELECTION: Object selection according to largest bounding box volume - computing fake 6 views heightmaps{reset}")
+                # select k objects with the largest boubding box volume, compute thier heightmaps and concatenate them            
+                for i in range(len(list(bbox_order[0:k_sort]))):
+                    item_views = []
+                    for view in principal_views.values():
+                        Ht = np.zeros((resolution,resolution))
+                        #env.visualize_object_heightmaps(Ht, Ht, view, only_top = True)
+                        #env.visualize_object_heightmaps_3d(Ht, Ht, view, only_top = True)
+                        item_views.append(Ht)
+                        del(Ht)
+                        gc.collect()
+                    item_views = np.array(item_views)
+                    views.append(item_views)
+                    roll_pitch_angles = [] # list of roll-pitch angles
+                    heightmaps_rp_obj = []    # list of heightmaps for each roll-pitch angle
+
+                    for r in roll:
+                        for p in pitch:
+
+                            roll_pitch_angles.append(np.array([r,p]))
+                            orient = [r,p,0]
+
+                            #print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
+                            
+                            Ht, Hb, _, _, _ = env.item_hm(bbox_order[i], orient)
+                            
+                            # --- Uncomment to visulize Heightmaps
+                            #env.visualize_object_heightmaps(Ht, Hb, orient, only_top = False)
+                            #env.visualize_object_heightmaps_3d(Ht, Hb, orient, only_top = False)
+                            
+                            # add one dimension to concatenate Ht and Hb
+                            Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
+                            Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
+                            heightmaps_rp_obj.append(np.concatenate((Ht,Hb), axis=2)) 
+                            del(Ht, Hb, orient, _)
+                            gc.collect()
+                    heightmaps_rp.append(heightmaps_rp_obj)
+                        
+                if len(bbox_order) < k_sort:
+                    for j in range(k_sort-len(bbox_order)):
+                        item_views = []
+                        for view in principal_views.values():
+                            item_views.append(np.zeros((resolution,resolution)))
+                        item_views = np.array(item_views)
+                        views.append(item_views)
+                        heightmaps_rp_obj = []    # list of heightmaps for each roll-pitch angle
+                        for r in roll:
+                            for p in pitch:
+
+                                orient = [r,p,0]
+
+                                #print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
+                                
+                                Ht, Hb  = np.zeros((resolution,resolution)),np.zeros((resolution,resolution))
+                                
+                                # --- Uncomment to visulize Heightmaps
+                                #env.visualize_object_heightmaps(Ht, Hb, orient, only_top = False)
+                                #env.visualize_object_heightmaps_3d(Ht, Hb, orient, only_top = False)
+                                
+                                # add one dimension to concatenate Ht and Hb
+                                Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
+                                Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
+                                heightmaps_rp_obj.append(np.concatenate((Ht,Hb), axis=2)) 
+                                del(Ht, Hb, orient)
+                                gc.collect()
+                        heightmaps_rp.append(heightmaps_rp_obj)
 
             elif args.stage == 2:
 
                 # select k objects with the largest bounding box volume
                 print('---------------------------------------')
-                print(f"{bold}\n1. SELECTION: Object selection according to Manager Network Selection{reset}")
-                
-
-                principal_views = {
-                        "front": [0, 0, 0],
-                        "back": [180, 0, 0],
-                        "left": [0, -90, 0],
-                        "right": [0, 90, 0],
-                        "top": [-90, 0, 0],
-                        "bottom": [90, 0, 0]
-                    }
-                
-                views = []
-
-                # if number of object is less than k, update k       
-                if len(env.unpacked) < k_sort:
-                    k_sort = len(env.unpacked)
-
-                unpacked_volume, unpacked_ids = env.order_by_bbox_volume(env.unpacked)
+                print(f"{bold}\n1. SELECTION: Object selection according to Manager Network Selection - computing 6 views heightmaps{reset}")
 
                 # select k objects with the largest boubding box volume, compute thier heightmaps and concatenate them            
-                for i in range(k_sort):
+                for i in range(len(list(bbox_order[0:k_sort]))):
                     item_views = []
+                    heightmaps_rp_obj = []
 
                     for view in principal_views.values():
-                        Ht,_,obj_length,obj_width, _  = env.item_hm(unpacked_ids[i], view)
+                        Ht,_,_,_,_  = env.item_hm(bbox_order[i], view)
                         #env.visualize_object_heightmaps(Ht, _, view, only_top = True)
                         #env.visualize_object_heightmaps_3d(Ht, _, view, only_top = True)
                         item_views.append(Ht)
                         del(Ht,_)
                         gc.collect()
-
                     item_views = np.array(item_views)
                     views.append(item_views)
+                    roll_pitch_angles = [] # list of roll-pitch angles
+                    for r in roll:
+                        for p in pitch:
+                            roll_pitch_angles.append(np.array([r,p]))
 
-                views = np.array(views) # (K, 6, resolution, resolution)
-                print("Computed the 6 views heightmaps for each object")
-                # forward pass in the manager network to get the scores for next object to be packed
-                input1_selection_network = np.expand_dims(views, axis=0)  #(batch, K, 6, resolution, resolution)
-                input2_selection_network = np.expand_dims(np.expand_dims(heightmap_box,axis=0), axis=0)  #(batch, 1, resolution, resolution)
+                            orient = [r,p,0]
 
-                chosen_item_index, score_values = trainer.forward_manager_network(input1_selection_network,input2_selection_network, env)
+                            #print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
+                            
+                            Ht, Hb, _, _, _ = env.item_hm(bbox_order[i], orient)
+                            
+                            # --- Uncomment to visulize Heightmaps
+                            #env.visualize_object_heightmaps(Ht, Hb, orient, only_top = False)
+                            #env.visualize_object_heightmaps_3d(Ht, Hb, orient, only_top = False)
+                            
+                            # add one dimension to concatenate Ht and Hb
+                            Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
+                            Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
+                            heightmaps_rp_obj.append(np.concatenate((Ht,Hb), axis=2)) 
+                            del(Ht, Hb, orient, _)
+                            gc.collect()
+                    heightmaps_rp.append(heightmaps_rp_obj)
+                if len(bbox_order) < k_sort:
+                    for j in range(k_sort-len(bbox_order)):
+                            item_views = []
+                            for view in principal_views.values():
+                                item_views.append(np.zeros((resolution,resolution)))
+                            item_views = np.array(item_views)
+                            views.append(item_views)
+                            heightmaps_rp_obj = []
+                            for r in roll:
+                                for p in pitch:
+                                    orient = [r,p,0]
 
-                del(input1_selection_network, input2_selection_network, views)
-                gc.collect()
-                next_obj = chosen_item_index
+                                    #print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
+                                    
+                                    Ht, Hb  = np.zeros((resolution,resolution)),np.zeros((resolution,resolution))
+                                    
+                                    # --- Uncomment to visulize Heightmaps
+                                    #env.visualize_object_heightmaps(Ht, Hb, orient, only_top = False)
+                                    #env.visualize_object_heightmaps_3d(Ht, Hb, orient, only_top = False)
+                                    
+                                    # add one dimension to concatenate Ht and Hb
+                                    Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
+                                    Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
+                                    heightmaps_rp_obj.append(np.concatenate((Ht,Hb), axis=2)) 
+                                    del(Ht, Hb, orient)
+                                    gc.collect()
+                            heightmaps_rp.append(heightmaps_rp_obj)
 
-            # discretize r,p,y angles --> 90 degrees discretization
-            roll = np.arange(0,360,90) 
-            pitch = np.arange(0,360,90) 
-            roll_pitch_angles = [] # list of roll-pitch angles
-            heightmaps_rp = []     # list of heightmaps for each roll-pitch angle
 
-            for r in roll:
-                for p in pitch:
 
-                    roll_pitch_angles.append(np.array([r,p]))
-                    orient = [r,p,0]
-
-                    #print('Computing heightmaps for object with id: ', next_obj, ' with orientation: ', orient)
-                    
-                    Ht, Hb, _, _, _ = env.item_hm(next_obj, orient)
-                    
-                    # --- Uncomment to visulize Heightmaps
-                    #env.visualize_object_heightmaps(Ht, Hb, orient, only_top = False)
-                    #env.visualize_object_heightmaps_3d(Ht, Hb, orient, only_top = False)
-                    
-                    # add one dimension to concatenate Ht and Hb
-                    Ht.shape = (Ht.shape[0], Ht.shape[1], 1)
-                    Hb.shape = (Hb.shape[0], Hb.shape[1], 1)
-                    heightmaps_rp.append(np.concatenate((Ht,Hb), axis=2)) 
-                    del(Ht, Hb, orient, _)
-                    gc.collect()
-            del(r,p,roll,pitch)
-            gc.collect()
+            views = np.array(views) # (K, 6, resolution, resolution)
+            print("Computed the 6 views heightmaps for each object")
             heightmaps_rp = np.asarray(heightmaps_rp) # (16, res, res, 2)
-            roll_pitch_angles = np.asarray(roll_pitch_angles) # (16, 2)
 
-            # prepare inputs for forward pass in the worker network
-            input_placement_network_1 = np.expand_dims(heightmaps_rp, axis=0)                          # (batch, 16, res, res, 2) -- object heightmaps at different roll-pitch angles
-            del(heightmaps_rp)
-            gc.collect()
-            input_placement_network_2 = np.expand_dims(np.expand_dims(heightmap_box, axis=2), axis =0) # (batch, res, res, 1)     -- box heightmap
-
+            # forward pass in the manager network to get the scores for next object to be packed
+            input1_selection_HM_6views = torch.tensor(np.expand_dims(views, axis=0))                                       # (batch, K, 6, resolution, resolution) -- object heightmaps at 6 views
+            boxHM = torch.tensor(np.expand_dims(np.expand_dims(heightmap_box,axis=0), axis=0),requires_grad=True)          # (batch, 1, resolution, resolution) -- box heightmap
+            input2_selection_ids = torch.tensor([float(item) for item in bbox_order[0:k_sort]] ,requires_grad=True)        # (K) -- list of loaded ids
+            input1_placement_rp_angles = torch.tensor(np.asarray(roll_pitch_angles),requires_grad=True)                    # (n_rp, 2) -- roll-pitch angles
+            input2_placement_HM_rp = torch.tensor(np.expand_dims(heightmaps_rp, axis=0),requires_grad=True)                # (batch, K, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
             # forward pass into worker to get Q-values for placement
-            Q_values = trainer.forward_worker_network(env, roll_pitch_angles, input_placement_network_1, input_placement_network_2)
-
-            del(input_placement_network_1, input_placement_network_2)   
-            gc.collect()
-
-            print(f"{bold}\n2. PLACEMENT: Computing packing pose of the selected object with placement network{reset}")
+            
+            Q_values, selected_obj, orients = trainer.forward_network( input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
             print("Q values computed for every candidate pose.\n")
 
             # Uncomment to plot Q-values
             # Qvisual = trainer.visualize_Q_values(Q_values, show=True)
             # check placement validity
-            indices_rp, indices_y, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = trainer.check_placement_validity(env, Q_values, roll_pitch_angles, heightmap_box, next_obj)
+            indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = trainer.check_placement_validity(env, Q_values, orients, heightmap_box, selected_obj)
 
-            del(roll_pitch_angles,heightmap_box)
-            gc.collect()
             # Compute objective function  
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function(env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
-            del(v_items_packed,_)
-            gc.collect()
+            tried_obj.append(selected_obj)
+            bbox_order = np.array([item for item in list(bbox_order) if item not in tried_obj])
             if i>= 1:
                     ''' Compute reward '''
                     print('Previous Objective function is: ', prev_obj)
                     current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
-                
                     sample_counter += 1
-                    if sample_counter == batch_size:
-                        optimizer_step = True 
+                    optimizer_step = True if sample_counter == batch_size else False
+                    loss_value = trainer.backprop(Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step)
+                    if optimizer_step == True:
                         epoch += 1
+                        sample_counter = 0
+                        # save and plot losses and rewards
+                        list_epochs_for_plot.append(epoch)
+                        losses.append(loss_value.cpu().detach().numpy())
+                        rewards.append(current_reward)
+                        trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
+                        trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
                         print(f'{red}Recorded ', sample_counter, f' samples for 1 batch of training{reset}')
-                    else:
-                        optimizer_step = False
-                    loss_value = trainer.backprop(Q_values, Q_target, indices_rp, indices_y, pixel_x, pixel_y, optimizer_step)
-                    print(f"{purple}Worker network trained on ", epoch, f"EPOCHS{reset}")
-                        
-                    # save snapshots and remove old ones if more than max_snapshots
-                    manager_snapshot, worker_snapshot = trainer.save_snapshot(optimizer_step, max_snapshots=5) 
-                    
-                    # save and plot losses and rewards
-                    list_epochs_for_plot.append(epoch)
-                    losses.append(loss_value.cpu().detach().numpy())
-                    rewards.append(current_reward)
-                    trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
-                    trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
-                    
-
-
+                        # save snapshots and remove old ones if more than max_snapshots
+                        snapshot = trainer.save_snapshot(max_snapshots=5) 
+                        print(f"{purple}Worker network trained on ", epoch, f"EPOCHS{reset}")
             prev_obj = current_obj
             heightmap_box = NewBoxHeightMap
             if packed == False:
-                print(f"{bold}{red}OBJECT WITH ID: ", next_obj, f" CANNOT BE PACKED{reset}")
-
-        manager_snap = manager_snapshot
-        worker_snap = worker_snapshot
+                print(f"{bold}{red}OBJECT WITH ID: ", selected_obj, f" CANNOT BE PACKED{reset}")
+                
         if epoch == 0:
-            load_snapshot_manager_ = False
-            load_snapshot_worker_ = False
+            load_snapshot_ = False
         else:
-            load_snapshot_manager_ = True
-            load_snapshot_worker_ = True
+            load_snapshot_ = True
+            snap = snapshot
 
         del(env)
         gc.collect()
+
         print('--------------------------------------')
         print(f'{red}END OF CURRENT EPISODE: ', episode, f'{reset}')
         print('--------------------------------------')
@@ -353,17 +386,17 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=50) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=50) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=20) # number of objects to consider for sorting
-    parser.add_argument('--resolution', dest='resolution', action='store', default=400) # resolution of the heightmaps
+    parser.add_argument('--k_max', action='store', default=2) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=2) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=2) # number of objects to consider for sorting
+    parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
-    parser.add_argument('--manager_snapshot', dest='manager_snapshot', action='store', default=f'snapshots/models/worker_network_episode_0_epoch_1.pth') # path to the manager network snapshot
-    parser.add_argument('--worker_snapshot', dest='worker_snapshot', action='store', default=f'snapshots/models/worker_network_episode_7_epoch_10.pth') # path to the worker network snapshot
+    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_0_epoch_1.pth') # path to the  network snapshot
     parser.add_argument('--new_episodes', action='store', default=5000) # number of episodes
-    parser.add_argument('--load_snapshot_manager', dest='load_snapshot_manager', action='store', default=False) # Load snapshot of the manager network
-    parser.add_argument('--load_snapshot_worker', dest='load_snapshot_worker', action='store', default=False) # Load snapshot of the worker network
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
     parser.add_argument('--batch_size', dest='batch_size', action='store', default=2) # Batch size for training
+    parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
+    parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
     args = parser.parse_args()
     
     # --------------- Start Train ---------------

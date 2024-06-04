@@ -9,6 +9,7 @@ import pybullet_data
 import os, csv
 import random
 import gc
+import math
 
 class Env(object):
     def __init__(self, obj_dir, is_GUI = True, box_size = (0.4,0.4,0.3), resolution = 40):
@@ -60,7 +61,7 @@ class Env(object):
         #-- Initialize ids of the objects already packed
         self.packed = []
         #-- Initialize ids of the objects not packed
-        self.unpacked = []       
+        self.unpacked = []  
         # -- Initialize the stability tresholds
         self.stability_treshold_position = 0.02
         self.stability_treshold_orientation = np.pi*2/3
@@ -285,6 +286,12 @@ class Env(object):
 
         return object_limits
     
+    def stop_physics(self):
+        for body_id in range(p.getNumBodies()):
+            p.resetBaseVelocity(body_id, [0, 0, 0], [0, 0, 0])
+            for joint_id in range(p.getNumJoints(body_id)):
+                p.setJointMotorControl2(body_id, joint_id, p.VELOCITY_CONTROL, force=0)
+
     def item_hm(self, item_id, orient):
         '''
         item_id: integer
@@ -298,13 +305,13 @@ class Env(object):
         '''
         
         # Stores the item original position and orientation
-        old_pos, old_quater = p.getBasePositionAndOrientation(item_id)  
+        old_pos, old_quater = p.getBasePositionAndOrientation(int(item_id))  
         quater = p.getQuaternionFromEuler(orient)
-        
+        old_vel = p.getBaseVelocity(int(item_id))
         # Set new orientation for the item
-        p.resetBasePositionAndOrientation(item_id,[1,1,1],quater)       
-        
-        _, vertices = p.getMeshData(bodyUniqueId=item_id, linkIndex=-1)
+        p.resetBasePositionAndOrientation(int(item_id),[1,1,1],quater)       
+        self.stop_physics()
+        _, vertices = p.getMeshData(bodyUniqueId=int(item_id), linkIndex=-1)
 
         # vertices is a list of tuples, each representing a vertex of the mesh.
         # We can use a list comprehension to get all the z values and then find the maximum.
@@ -368,7 +375,8 @@ class Env(object):
         offsets = [offset_pointminx_COM, offset_pointmaxx_COM, offset_pointminy_COM, offset_pointmaxy_COM, offset_pointminz_COM, offset_pointmaxz_COM]
 
         # Resets the initial orientation for the item
-        p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
+        p.resetBasePositionAndOrientation(int(item_id),old_pos,old_quater)
+        p.resetBaseVelocity(int(item_id), old_vel[0], old_vel[1])
         return Ht,Hb, obj_length, obj_width, offsets 
         
     def ray_cast_in_batches(self, starts, ends, batch_size=10000):
@@ -388,7 +396,7 @@ class Env(object):
         '''
         volume = []
         for item in items_ids:
-            AABB = np.array(p.getAABB(item))
+            AABB = np.array(p.getAABB(int(item) ))
             volume.append(np.product(AABB[1]-AABB[0]))
         bbox_order = np.argsort(volume)[::-1]
         pybullet_ordered_ids = np.asarray(items_ids)[bbox_order]
@@ -481,11 +489,11 @@ class Env(object):
         Function to reset the position and orientation of the item based on the provided transform argument[target_euler,target_pos]. It updates the environment attributes (env.unpacked and env.packed) accordingly.
         '''
         # Store the original position and orientation of the item
-        old_pos, old_quater = p.getBasePositionAndOrientation(item_id) 
+        old_pos, old_quater = p.getBasePositionAndOrientation(int(item_id) )
         
         # Check if the item is already packed
         if item_id in self.packed:
-            print(f" {red}Item", item_id, f"already packed!{exit}")
+            print(f" {red}Item", int(item_id) , f"already packed!{exit}")
             return False
         # Extract the target position and orientation from the transform argument
         target_euler = transform[0:3]
@@ -500,15 +508,15 @@ class Env(object):
         collision, height_exceeded_before_pack = self.bounding_box_collision(self.bbox_box, limits_object)
 
         # Set the new position and orientation for the item
-        p.resetBasePositionAndOrientation(item_id, target_pos, new_quater)
+        p.resetBasePositionAndOrientation(int(item_id) , target_pos, new_quater)
 
         # Checks the stability of the item based on its final position and orientation
         for i in range(500):
             p.stepSimulation()
             
         
-        AABB_after_pack = self.drawAABB( self.compute_object_bbox(item_id))
-        curr_pos, curr_quater = p.getBasePositionAndOrientation(item_id)
+        AABB_after_pack = self.drawAABB( self.compute_object_bbox(int(item_id) ))
+        curr_pos, curr_quater = p.getBasePositionAndOrientation(int(item_id) )
         curr_euler = np.array(p.getEulerFromQuaternion(curr_quater))
         
         #-- Stability (boolean) is determined by checking if the item has settled within a small tolerance of its target position and orientation. 
@@ -520,8 +528,8 @@ class Env(object):
         stability = 1 if stability_bool else 0        
         
         # Update the packed and unpacked lists
-        self.packed.append(item_id)
-        self.unpacked.remove(item_id)
+        self.packed.append(int(item_id) )
+        self.unpacked.remove(int(item_id) )
         self.removeAABB(AABB_after_pack)
         # Compute the new box heightmap
         NewBoxHeightMap = self.box_heightmap()
@@ -565,9 +573,9 @@ class Env(object):
 
         Restores the position and orientation of the item to its original state and updates env (env.packed and env.packed) attributes accordingly.
         '''
-        p.resetBasePositionAndOrientation(item_id,old_pos,old_quater)
-        self.packed.remove(item_id)
-        self.unpacked.append(item_id)
+        p.resetBasePositionAndOrientation(int(item_id) ,old_pos,old_quater)
+        self.packed.remove(int(item_id))
+        self.unpacked.append(int(item_id))
         NewBoxHeightmap = self.box_heightmap()
         return NewBoxHeightmap
          
@@ -823,16 +831,14 @@ class Env(object):
         Function to compute the maximum z-value of the item in the box due to gravity
         '''
         # Select the region of Hc and Hb that corresponds to the item
-        x_range = [pixel_x + i for i in range(-(int(self.resolution*obj_length//self.box_size[0]))//2, int((self.resolution*obj_length//self.box_size[0]))//2)]
-        y_range = [pixel_y + i for i in range(-(int(self.resolution*obj_width//self.box_size[1]))//2, int((self.resolution*obj_width//self.box_size[1]))//2)]
-        x_min = max(0,x_range[0])
-        x_max = min(Hb.shape[0],x_range[-1])
-        y_min = max(0,y_range[0])
-        y_max = min(Hb.shape[1],y_range[-1])
+        x_range = [pixel_x + i for i in range(math.ceil(-self.resolution*obj_width/self.box_size[1]/2), math.ceil(self.resolution*obj_width/self.box_size[1]/2) )]
+        y_range = [pixel_y + i for i in range(math.ceil(-self.resolution*obj_length/self.box_size[1]/2), math.ceil(self.resolution*obj_length/self.box_size[1]/2) )]
+        x_min, x_max, y_min, y_max  = max(0,x_range[0]), min(Hb.shape[0],x_range[-1]), max(0,y_range[0]), min(Hb.shape[1],y_range[-1])
+        if y_max - y_min == 0 or x_max - x_min == 0:
+            y_max = y_min + 1
+            x_max = x_min + 1
         Hc = Hc[x_min:x_max, y_min:y_max]
-        del(x_range, y_range, x_max,x_min,y_max,y_min)
-        gc.collect()
-        
+
         # Initialize an empty list to store the results
         diffs = []
 
@@ -859,6 +865,7 @@ class Env(object):
             start_index = num_chunks * chunk_size
             end_index = np.prod(Hb.shape)
             Hb_chunk = Hb.reshape(-1)[start_index:end_index].reshape(-1, 1, 1)
+            
             diffs.append(np.max(Hc.reshape(1, 1, *Hc.shape) - Hb_chunk))
 
         del( Hc, Hb, Hb_chunk)

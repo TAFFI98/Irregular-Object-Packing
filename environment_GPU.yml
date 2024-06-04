@@ -32,7 +32,6 @@ dependencies:
   - xz=5.4.6=h5eee18b_0
   - zlib=1.2.13=h5eee18b_0
   - pip:
-      - python-graphviz
       - contourpy==1.2.0
       - cycler==0.12.1
       - filelock==3.14.0
