@@ -11,7 +11,46 @@ import random
 import gc
 import math
 
+'''
+This class defines the environment for the packing problem. It contains the following methods:
+- __init__: initializes the environment
+- create_box: creates the walls of the packing box in simulation
+- load_items: loads the objects in simulation
+- remove_all_items: removes all the objects from the simulation
+- box_heightmap: computes the box heightmap
+- visualize_object_heightmaps: visualizes the object heightmaps in 2D
+- visualize_object_heightmaps_3d: visualizes the object heightmaps in 3D
+- visualize_box_heightmap: visualizes the box heightmap in 2D
+- visualize_box_heightmap_3d: visualizes the box heightmap in 3D
+- compute_object_limits: computes the object limits
+- stop_physics: stops the physics of the simulation
+- item_hm: computes the item heightmap
+- order_by_bbox_volume: orders the items by bounding box volume
+- compute_object_bbox: computes the object bounding box
+- order_by_item_volume: orders the items by volume
+- grid_scan: scans the grid
+- pack_item_check_collision: checks the collision of the packed item
+- check_height_exceeded: checks if the height is exceeded
+- bounding_box_collision: checks the bounding box collision between box and objects
+- unpack_item: unpacks the item
+- drawAABB: draws the bounding box
+- ray_cast_in_batches: casts the ray in batches
+- item_volume: computes the item volume
+- compute_object_volume: computes the object volume
+- draw_predicted_pose_volume: draws the predicted pose volume
+- removeAABB: removes the AABB
+- draw_box: draws the box
+- Compactness: computes the compactness
+- Piramidality: computes the piramidality
+- Objective_function: computes the objective function
+- generate_urdf_csv: generates the urdf csv
+- Reward_function: computes the reward function
+- get_z: gets the z
+- euler_angle_distance: computes the euler angle distance
+
+'''
 class Env(object):
+
     def __init__(self, obj_dir, is_GUI = True, box_size = (0.4,0.4,0.3), resolution = 40):
         
         self.p = p
@@ -267,8 +306,10 @@ class Env(object):
 
     def compute_object_limits(self, pos, offsets):
         '''
-        item_id: integer
-        output: list of 4 elements [min_x_global, max_x_global, min_y_global, max_y_global]
+        pos: list of 3 elements [x, y, z]
+        offsets: list of 6 elements [offset_pointminx_COM, offset_pointmaxx_COM, offset_pointminy_COM, offset_pointmaxy_COM, offset_pointminz_COM, offset_pointmaxz_COM]
+        output: list of 6 elements [min_x_global, max_x_global, min_y_global, max_y_global, min_z_global, max_z_global]
+        This function computes the limits of the object in the global reference frame
         '''
 
         offset_pointminx_COM, offset_pointmaxx_COM, offset_pointminy_COM, offset_pointmaxy_COM, offset_pointminz_COM, offset_pointmaxz_COM  =   offsets[0], offsets[1], offsets[2], offsets[3], offsets[4], offsets[5]
@@ -287,6 +328,9 @@ class Env(object):
         return object_limits
     
     def stop_physics(self):
+        '''
+        Function to stop the physics of the simulation
+        '''
         for body_id in range(p.getNumBodies()):
             p.resetBaseVelocity(body_id, [0, 0, 0], [0, 0, 0])
             for joint_id in range(p.getNumJoints(body_id)):
@@ -380,6 +424,13 @@ class Env(object):
         return Ht,Hb, obj_length, obj_width, offsets 
         
     def ray_cast_in_batches(self, starts, ends, batch_size=10000):
+        '''
+        starts: numpy array of shape (n,3)
+        ends: numpy array of shape (n,3)
+        batch_size: integer
+        output: numpy array of shape (n,3)
+        This function casts rays in batches to avoid memory issues.
+        '''
         results = []
         for i in range(0, len(starts), batch_size):
             batch_starts = starts[i:i+batch_size]
@@ -480,11 +531,16 @@ class Env(object):
         '''
         item_id: integer representing the id of the object
         transform: list of 6 elements [target_euler, target_pos]
+        offsets: list of 6 elements [offset_pointminx_COM, offset_pointmaxx_COM, offset_pointminy_COM, offset_pointmaxy_COM, offset_pointminz_COM, offset_pointmaxz_COM]
         outputs:
-        NewBoxHeightMap: numpy array of shape (resolution, resolution) representing the box heightmap after the packing operation
-        stability: integer representing the stability of the packing
+        NewBoxHeightMap: numpy array of shape (resolution, resolution) representing the new box heightmap
+        stability: integer representing the stability of the item
         old_pos: list of 3 elements representing the old position of the item
         old_quater: list of 4 elements representing the old orientation of the item
+        collision: boolean indicating if the item collides with the box margins
+        limits_obj_line_ids: list of integers representing the line ids
+        height_exceeded_before_pack: boolean indicating if the height of the box is exceeded before packing the item
+
 
         Function to reset the position and orientation of the item based on the provided transform argument[target_euler,target_pos]. It updates the environment attributes (env.unpacked and env.packed) accordingly.
         '''
@@ -645,6 +701,7 @@ class Env(object):
         vertices: list of 6 elements [X1, X2, Y1, Y2, Z1, Z2]
         line_color: RGB color of the line
         line_width: width of the line
+        This function draws the predicted pose of the object in the simulation
         '''
         X1, X2, Y1, Y2, Z1, Z2 = vertices
 
@@ -805,6 +862,8 @@ class Env(object):
         Function to compute the objective function value based on the compactness, pyramidality, and stability of the packing
         '''
         obj  = alpha * self.Compactness(item_in_box, item_volumes, box_hm) + beta * self.Pyramidality(item_in_box, item_volumes, box_hm) + gamma * stability_of_packing
+        print(f'---------------------------------------') 
+        print(f"{blue_light}\n5. Computing the objective function {reset}")
         print('Objective function is: ', obj)
         return obj
     
@@ -817,7 +876,6 @@ class Env(object):
         Function to compute the reward based on the difference between the objective function values before and after the action
         '''
         reward  = obj_2 - obj_1
-        print('------------------Reward  is: ', reward,'  ------------------')
         return reward
     
     def get_z(self, Hc, Hb, pixel_x, pixel_y, obj_length, obj_width):
@@ -826,6 +884,9 @@ class Env(object):
         Hb: numpy array of shape (resolution, resolution) representing the heightmap of the item
         pixel_x: integer representing the x-coordinate of the pixel representing the item position in the box
         pixel_y: integer representing the y-coordinate of the pixel representing the item position in the box
+        obj_length: float representing the length of the item
+        obj_width: float representing the width of the item
+
         output: float representing the maximum z-value of the item in the box
         
         Function to compute the maximum z-value of the item in the box due to gravity

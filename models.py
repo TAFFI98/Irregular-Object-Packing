@@ -15,25 +15,18 @@ import torchvision
 import matplotlib.pyplot as plt
 import torch.nn.init as init
 ''' 
-selection_net and placement_net are the classes to be imported
-from models import  placement_net, selection_net
+The selection_placement_net class is responsible for selecting the best object and placing it in the scene.
+The selection_placement_net class is composed of two sub-networks: the selection network and the placement network.
+The selection network is responsible for selecting the best object from a list of K objects.
+The placement network is responsible for placing the selected object in the scene.
+The selection_placement_net class is composed of the following methods:
 
-SELECTION NET
-input1_selection_network ---> (batch, K, 6, res, res) - 6 views of the K objects​
-input2_selection_network ---> (batch, 1, res, res) - BOX Heightmap​
-manager_network = selection_net(use_cuda = False,K = K)
-chosen_item_index, score_values = manager_network(torch.tensor(input1_selection_network),torch.tensor(input2_selection_network),item_ids)
-score_values ---> (batch, K) - Scores for the objects representing the probability of being the next obj to be paked​
-chosen_item_index ---> int  - Index of the next object to be packed
 
-PLACEMENT NET
-​input_placement_network_1 ---> (batch, n_rp, res, res, 2) - top and bottom HM of the selected objects at n_rp orientations​
-input_placement_network_2 ---> (batch, res, res, 1) - BOX Heightmap
-worker_network = placement_net(use_cuda = False)
-Q_values , [pixel_x,pixel_y,r,p,y] = worker_network(torch.tensor(input_placement_network_1),torch.tensor(input_placement_network_2),roll_pitch_angles)
-[pixel_x,pixel_y,r,p,y] ---> selected pose​
-Q_values ---> (batch, n_y, n_rp, res, res) - Q values for the discretized actions
-
+The Downsample class is responsible for reducing the spatial dimensions of the feature maps by half while maintaining the number of channels.   
+The Upsample class is responsible for increasing the spatial dimensions of the feature maps by a factor of 2 and concatenating it with the corresponding feature map from the downsampling path along the channel direction.
+The conv_block class encapsulates two sequential convolutional operations, each followed by batch normalization, dropout, and ReLU activation.
+The rotate_tensor_and_append_bbox method rotates the input tensor and appends the bounding box heightmap to the rotated heightmap.
+The even_odd_sign method returns 1 if n is even and -1 if n is odd.
 
 ''' 
 def even_odd_sign(n):

@@ -25,13 +25,13 @@ import gc
 class Trainer(object):
     def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
         
-        self.n_y = n_y # number of discrete yaw orientations
-        self.method = method # stage_1 or stage_2
-        self.K = K # total number of items to be packed
-        self.epoch = epoch # epoch counter
-        self.episode = episode # episode counter
-        self.lr = 1e-4 # learning rate
-        self.momentum = 0.9 # momentum
+        self.n_y = n_y           # number of discrete yaw orientations
+        self.method = method     # stage_1 or stage_2
+        self.K = K               # total number of items to be packed
+        self.epoch = epoch       # epoch counter
+        self.episode = episode   # episode counter
+        self.lr = 1e-4           # learning rate
+        self.momentum = 0.9      # momentum
         self.weight_decay = 2e-5 # weight decay
 
         # Check if CUDA can be used
@@ -45,7 +45,7 @@ class Trainer(object):
             print(f"{bold}CUDA is *NOT* detected. Running with only CPU.{reset}")
             self.use_cuda = False
 
-        # INITIALIZE  NETWORK
+        # INITIALIZE NETWORK
         self.selection_placement_net = selection_placement_net(K = self.K, n_y = self.n_y, use_cuda = self.use_cuda, method = self.method)
             
         # Initialize Huber loss
@@ -76,11 +76,15 @@ class Trainer(object):
  
     def forward_network(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
         '''
-        input_placement_network_1: numpy array of shape (batch, n_rp, res, res, 2) 
-        input_placement_network_2: numpy array of shape (batch, res, res, 1) - bounding box heightmap
-        env: environment object
+        input1_selection_HM_6views: input heightmaps of the 6 views of the objects
+        boxHM: heightmap of the box
+        input2_selection_ids: indices of the objects
+        input1_placement_rp_angles: roll and pitch angles of the objects
+        input2_placement_HM_rp: heightmap of the objects at different roll and pitch angles
         output:
         Q_values: predicted Q_values
+        selected_obj: selected object
+        orients: array with the roll, pitch and yaw angles considered ordered
         '''
         #-- placement network
         Q_values, selected_obj, orients  = self.selection_placement_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
@@ -92,17 +96,14 @@ class Trainer(object):
     def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):
         '''
         Q_values: predicted Q_values
-        indices_rp: roll and pitch index of the selected pixel
-        indices_y: yaw index of the selected pixel
-        pixel_x: x coordinate of the selected pixel
-        pixel_y: y coordinate of the selected pixel
         prev_obj: previous objective function value
         current_obj: current objective function value
         env: environment object
         output:
-        Q_target: target Q_value
+        Q_target: target Q_value according to Bellman equation
         '''
-        # Compute current reward
+        # Compute current reward 
+        print(f"{blue_light}\nComputing Reward fuction {reset}\n")
         current_reward = env.Reward_function(prev_obj, current_obj)
 
         # Compute expected reward:
@@ -112,19 +113,21 @@ class Trainer(object):
         print('Future reward: %f' % (future_reward))
         Q_target = current_reward + self.future_reward_discount * future_reward
         print('Expected reward: %f ' % (Q_target))
+        print('---------------------------------------')           
         return current_reward, Q_target
 
     # Compute labels and backpropagate
     def backprop(self, Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step):
             '''
-            Q_max: predicted Q_values
+            This function computes the gradients and backpropagates the loss across the networks
+
+            Q_values: predicted Q_values
             Q_target: target Q_value
-            indices_rp: roll and pitch index of the selected pixel
-            indices_y: yaw index of the selected pixel
+            indices_rpy: index of the selected orientation
             pixel_x: x coordinate of the selected pixel
             pixel_y: y coordinate of the selected pixel
-            label_weight: weight of the label in the Huber loss
-            This function computes the labels and backpropagates the loss across the networks
+            output:
+            loss: loss value
             '''
             
 
@@ -137,25 +140,32 @@ class Trainer(object):
             
             loss = self.criterion(Q_values[indices_rpy, pixel_x, pixel_y], Q_target_tensor)
             loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-            print(f'{blue_light}------------------ Training loss: %f' % (loss),f'------------------{reset}')
-            
+            print(f"{blue_light}\nComputing loss and gradients on network{reset}")
+            print('Training loss: %f' % (loss))
+            print('---------------------------------------') 
             #Inspect gradients
-            print('WORKER NETWORK GRAIDENTS:')
-            for name, param in self.selection_placement_net.named_parameters():
-                if param.grad is not None:
-                    print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
-                else:
-                    print(f"Layer: {name} | No gradients computed")
+            # print('NETWORK GRAIDENTS:')
+            # for name, param in self.selection_placement_net.named_parameters():
+            #     if param.grad is not None:
+            #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+            #     else:
+            #         print(f"Layer: {name} | No gradients computed")
  
             if optimizer_step == True:
-                print(f'{blue_light}-->Backpropagating loss on worker network {reset}')
+                print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
                 self.optimizer_worker.step()
+                print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
+                print('---------------------------------------')  
                 self.optimizer_worker.zero_grad()
                 self.epoch = self.epoch+1
 
                 if self.epoch % 4 == 0 and self.method == 'stage_2':
-                    print(f'{blue_light}--> Backpropagating loss on manager network{reset}')
+                    print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
+                    print('---------------------------------------') 
                     self.optimizer_manager.step()
+                    print('---------------------------------------')           
+                    print(f"{purple}Network trained on ", int(self.epoch/ 4)+1, f"EPOCHS{reset}")
+                    print('---------------------------------------')  
                     self.optimizer_manager.zero_grad()
 
             if self.use_cuda:
@@ -164,6 +174,13 @@ class Trainer(object):
             return loss
     
     def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images = 4):
+        '''
+        list_epochs_for_plot: list of epochs
+        losses: list of losses
+        folder: folder to save the plots
+        max_images: maximum number of images to save
+        This function saves the loss values and plots them
+        '''
         # Ensure the folder exists
         os.makedirs(folder, exist_ok=True)
 
@@ -197,6 +214,13 @@ class Trainer(object):
                 os.remove(files[1])
 
     def save_and_plot_reward(self, list_epochs_for_plot, rewards, folder, max_images = 4):
+        '''
+        list_epochs_for_plot: list of epochs
+        rewards: list of rewards
+        folder: folder to save the plots
+        max_images: maximum number of images to save
+        This function saves the reward values and plots them
+        '''
         # Ensure the folder exists
         os.makedirs(folder, exist_ok=True)
 
@@ -273,17 +297,18 @@ class Trainer(object):
         '''
         env: environment object
         Q_values: predicted Q_values #[batch, n_y, n_rp, res, res]
-        roll_pitch_angles: numpy array of shape (n_rp*n_y, 2) - roll pitch yaw angles
+        orients: numpy array of shape (n_rp*n_y, 3) - roll pitch yaw angles
         BoxHeightMap: heightmap of the box
         chosen_item_index: index of the object to be packed
 
         output:
-        indices_rp: roll and pitch index of the selected pixel
-        indices_y: yaw index of the selected pixel
+        indices_rpy: index of the selected orientation
         pixel_x: x coordinate of the selected pixel
         pixel_y: y coordinate of the selected pixel
         BoxHeightMap: updated heightmap of the box
-        stability_of_packing: boolean indicating if the placement is stable
+        stability_of_packing: stability of the packed object
+        packed: boolean indicating if the object was packed
+        Q_max: maximum Q_value
 
         This function tries to pack the chosen item with the predicted pose and checks if the placement is valid 
         (no collision with box margins and box height not exceeded).
@@ -370,7 +395,7 @@ class Trainer(object):
                 elif not height_exceeded:
                     print(f'{green_light}Box height not exceeded.{reset}')
                     print('--------------------------------------')
-                    print(f'{green}Packed chosen item!! {reset}')
+                    print(f'{green}Packed item with id ', chosen_item_index, f'successfully!{reset}')
                     print(f'{green}with pose: \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')                   
                     print('--------------------------------------')
                     print(f'{purple_light}>Stability is:', stability_of_packing,f'{reset}')
