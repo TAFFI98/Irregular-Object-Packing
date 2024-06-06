@@ -233,7 +233,7 @@ class placement_net(nn.Module):
             input2 = input2.cuda()
 
         batch_size = input1.size(0)
-        n_rp = input1.size(2)
+        self.n_rp = input1.size(2)
         K = input1.size(1)
         # Reshape input2 to match the batch size of input1
         input2 = input2.permute(0, 2, 3, 1).expand(batch_size, -1, -1, -1)
@@ -259,7 +259,7 @@ class placement_net(nn.Module):
         
         angles_yaw = torch.arange(0, 360, 360 / self.n_y).unsqueeze(0).to(input1.device)
         # Expand and reshape angles_yaw
-        angles_yaw_expanded = angles_yaw.unsqueeze(0).expand(1,n_rp,self.n_y).reshape(-1, 1) # torch.Size([1, n_y])
+        angles_yaw_expanded = angles_yaw.unsqueeze(0).expand(1,self.n_rp,self.n_y).reshape(-1, 1) # torch.Size([1, n_y])
 
         # Expand and reshape roll_pitch_angles_expanded
         roll_pitch_angles_expanded = roll_pitch_angles.unsqueeze(1).expand(-1, self.n_y, -1).reshape(-1, 2).to(input1.device) # torch.Size([n_rp, 2])
@@ -277,8 +277,8 @@ class placement_net(nn.Module):
         ''' Reshape input '''
         x = x.permute(0, 3, 1, 2) # torch.Size([nrp*ny, 3, res, res])
         outputs = []
-        for i in range(x.shape[0]):
-            xi = x[i].unsqueeze(0) # torch.Size([1, 3, res, res])
+        for i in range(self.n_rp):
+            xi = x[i*self.n_y:(i+1)*self.n_y] # torch.Size([n_y, 3, res, res])
             ''' Downsample'''
             xi = self.layer1_conv_block(xi)
             f1 = xi
@@ -303,12 +303,11 @@ class placement_net(nn.Module):
             xi = self.layer16_Upsample(xi, f1)
             xi = self.layer17_conv_block(xi)
 
-            xi = self.layer18(xi) # torch.Size([1, 1, res, tes])
-            outputs.append(torch.squeeze(xi)) # torch.Size([res, res])
+            xi = self.layer18(xi) # torch.Size([n_y, 1, res, res])
+            outputs.append(torch.squeeze(xi)) # torch.Size([n_y, res, res])
 
-        output = torch.stack(outputs, dim=0) # torch.Size([nrp*ny, res, res])
-        return output 
-
+        output = torch.cat(outputs, dim=0) # torch.Size([nrp*ny, res, res])
+        return output
 
     def rotate_tensor_and_append_bbox(self, input1, orient, input2):
         # Generate rotation matrix
