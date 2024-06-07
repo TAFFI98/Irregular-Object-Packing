@@ -30,8 +30,7 @@ class Trainer(object):
         self.K = K               # total number of items to be packed
         self.epoch = epoch       # epoch counter
         self.episode = episode   # episode counter
-        self.lr = 1e-4           # learning rate
-        self.momentum = 0.9      # momentum
+        self.lr = 1e-3           # learning rate 1e-3 for stage 1 and 1e-4 for stage 2
         self.weight_decay = 2e-5 # weight decay
 
         # Check if CUDA can be used
@@ -65,8 +64,8 @@ class Trainer(object):
         self.selection_placement_net.train()
         
         # Initialize optimizers
-        self.optimizer_manager = torch.optim.SGD(self.selection_placement_net.selection_net.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
-        self.optimizer_worker = torch.optim.SGD(self.selection_placement_net.placement_net.parameters(), lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
+        self.optimizer_manager = torch.optim.Adam(self.selection_placement_net.selection_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        self.optimizer_worker = torch.optim.Adam(self.selection_placement_net.placement_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         self.iteration = 0
         
         print('---------------------------------------------------')

@@ -62,7 +62,7 @@ class selection_placement_net(nn.Module):
         return Q_values, selected_obj, orients
     
 class selection_net(nn.Module):
-    def __init__(self, use_cuda, K, method ): 
+    def __init__(self, use_cuda, K, method): 
         super(selection_net, self).__init__()
         self.use_cuda = use_cuda
         self.K = K
@@ -412,11 +412,11 @@ class conv_block(nn.Module):
     
 if __name__ == '__main__':
 
-
+    method = 'stage_2'
     batch_size = 1
-    K = 20
-    resolution = 400
-    n_rp = 20
+    K = 1
+    resolution = 200
+    n_rp = 1
 
     input1_selection_HM_6views = torch.randn(batch_size, K, 6, resolution, resolution).cuda()  # object heightmaps at 6 views
     boxHM = torch.randn(batch_size, 1, resolution, resolution).cuda()                   # box heightmap
@@ -424,11 +424,10 @@ if __name__ == '__main__':
     input1_placement_rp_angles = torch.randn(n_rp,2).cuda()                                   # roll-pitch angles
     input2_placement_HM_rp = torch.randn(batch_size, K, n_rp, resolution, resolution, 2).cuda()    # object heightmaps at different roll-pitch angles
 
-    model = selection_placement_net(use_cuda=True, K=K, n_y = 4)
+    model = selection_placement_net(use_cuda = True, K = K, n_y = 4, method = method)
     model.train()
 
     Q_values, selected_obj, orients = model(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
-
     indices_rpy, pixel_x, pixel_y =   0, int(resolution/2), int(resolution/2)
     Q_target = 0.1
 
@@ -448,11 +447,18 @@ if __name__ == '__main__':
         else:
             print(f"Layer: {name} | No gradients computed")
 
-    def count_parameters(model):
+    def count_parameters_trainable(model):
         return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    def count_parameters(model):
+        return sum(p.numel() for p in model.parameters() )
 
-    model = placement_net(n_y=4, in_channel_unet=3, out_channel=1, use_cuda=False)
-    print(count_parameters(model))
-
-    model = selection_net(use_cuda=False, K=3)
-    print(count_parameters(model))
+    placement_net = placement_net(n_y=4, in_channel_unet=3, out_channel=1, use_cuda=False)
+    print('The number of trainable parameters in the placement net is: ' ,count_parameters_trainable(placement_net))
+    print('The tot number of parameters in the placement net is: ' ,count_parameters(placement_net))
+    print('--------------------------------------')
+    selection_net = selection_net(use_cuda=False, K=K, method = method)
+    print('The number of trainable parameters in the selection net is: ' ,count_parameters_trainable(selection_net))
+    print('The tot number of parameters in the selection net is: ' ,count_parameters(selection_net))
+    print('--------------------------------------')
+    print('The number of trainable parameters in the selection-placement net is: ' , count_parameters_trainable(selection_net) + count_parameters_trainable(placement_net))
+    print('The tot number of parameters in the selection-placement net is: ' , count_parameters(selection_net)+ count_parameters(placement_net))

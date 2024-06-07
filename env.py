@@ -103,7 +103,7 @@ class Env(object):
         self.unpacked = []  
         # -- Initialize the stability tresholds
         self.stability_treshold_position = 0.02
-        self.stability_treshold_orientation = np.pi*2/3
+        self.stability_treshold_orientation = np.pi/6
         
     def create_box(self, size, pos):
         '''
