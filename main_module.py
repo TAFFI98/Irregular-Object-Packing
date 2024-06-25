@@ -863,8 +863,8 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=50) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=50) # min number of objects to load
+    parser.add_argument('--k_max', action='store', default=10) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=10) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=20) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=200) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
