@@ -4,6 +4,7 @@ Created on  Apr 3 2024
 
 @author: Taffi
 """
+from torchview import draw_graph
 import pybullet as p
 import numpy as np
 import torch
@@ -46,6 +47,9 @@ class selection_placement_net(nn.Module):
         if self.use_cuda == True:
             self.selection_net.cuda()
             self.placement_net.cuda()
+        else:
+            self.selection_net.cpu()
+            self.placement_net.cpu()
     
     def forward(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
         # Compute score values using the selection network
@@ -415,18 +419,30 @@ if __name__ == '__main__':
     method = 'stage_2'
     batch_size = 1
     K = 1
-    resolution = 200
+    resolution = 50
     n_rp = 1
-
-    input1_selection_HM_6views = torch.randn(batch_size, K, 6, resolution, resolution).cuda()  # object heightmaps at 6 views
-    boxHM = torch.randn(batch_size, 1, resolution, resolution).cuda()                   # box heightmap
-    input2_selection_ids = torch.randn(K).cuda()                                               # list of loaded ids
-    input1_placement_rp_angles = torch.randn(n_rp,2).cuda()                                   # roll-pitch angles
-    input2_placement_HM_rp = torch.randn(batch_size, K, n_rp, resolution, resolution, 2).cuda()    # object heightmaps at different roll-pitch angles
-
-    model = selection_placement_net(use_cuda = True, K = K, n_y = 4, method = method)
+    cuda = False
+    if cuda == True:
+        input1_selection_HM_6views = torch.randn(batch_size, K, 6, resolution, resolution).cuda()  # object heightmaps at 6 views
+        boxHM = torch.randn(batch_size, 1, resolution, resolution).cuda()                   # box heightmap
+        input2_selection_ids = torch.randn(K).cuda()                                               # list of loaded ids
+        input1_placement_rp_angles = torch.randn(n_rp,2).cuda()                                   # roll-pitch angles
+        input2_placement_HM_rp = torch.randn(batch_size, K, n_rp, resolution, resolution, 2).cuda()    # object heightmaps at different roll-pitch angles
+    else:
+        input1_selection_HM_6views = torch.randn(batch_size, K, 6, resolution, resolution)
+        boxHM = torch.randn(batch_size, 1, resolution, resolution)
+        input2_selection_ids = torch.randn(K)
+        input1_placement_rp_angles = torch.randn(n_rp,2)
+        input2_placement_HM_rp = torch.randn(batch_size, K, n_rp, resolution, resolution, 2)
+        
+    model = selection_placement_net(use_cuda = cuda, K = K, n_y = 4, method = method)
     model.train()
 
+
+    #-- placement_net visulize
+    # model_graph = draw_graph(model, input_data=[input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp],graph_name = 'model',save_graph= True, directory= 'Irregular-Object-Packing/models_plot/')
+    #model_graph.visual_graph
+    
     Q_values, selected_obj, orients = model(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
     indices_rpy, pixel_x, pixel_y =   0, int(resolution/2), int(resolution/2)
     Q_target = 0.1

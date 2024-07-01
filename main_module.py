@@ -3,7 +3,8 @@ import random
 import argparse
 import matplotlib.pyplot as plt
 import numpy as np
-import cv2    
+import cv2   
+import time 
 import pybullet as p
 import gc
 from trainer import Trainer
@@ -93,7 +94,7 @@ def train(args):
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
         else:
                 # Not the first time the main loop is executed
-                episode = new_episode
+                episode = episode + 1
                 trainer.episode = episode   
                 print('----------------------------------------')
                 print('----------------------------------------')
@@ -377,48 +378,49 @@ def train(args):
             bbox_order = np.array([item for item in list(bbox_order) if item not in tried_obj])
 
             # Uncomment to plot Q-values
-            # Qvisual = trainer.visualize_Q_values(Q_values, show=True)
+            Qvisual = trainer.visualize_Q_values(Q_values, show=False, save=True, path='snapshots/Q_values/')
             
             print(f"{blue_light}\nChecking placement validity for the best 10 poses {reset}\n")
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = trainer.check_placement_validity(env, Q_values, orients, heightmap_box, selected_obj)
             
-            if packed == False:
-                print(f"{bold}{red}OBJECT WITH ID: ", selected_obj, f" CANNOT BE PACKED{reset}")
-                print('---------------------------------------') 
-
             # Compute the objective function
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function(env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
             
-            # The first iteration does not compute the reward since there are no previous objective function
-            if kk>= 1:
-                    # Compute reward and Q-target value
-                    print('Previous Objective function is: ', prev_obj)
-                    print('---------------------------------------')           
-                    current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
-                    
-                    # Count the number of samples for the batch
-                    sample_counter += 1
-                    print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
+            if packed == False:
+                print(f"{bold}{red}OBJECT WITH ID: ", selected_obj, f" CANNOT BE PACKED{reset}")
+                print('---------------------------------------') 
+            
+            elif packed == True:                
+                # The first iteration does not compute the reward since there are no previous objective function
+                if kk>= 1:
+                        # Compute reward and Q-target value
+                        print('Previous Objective function is: ', prev_obj)
+                        print('---------------------------------------')           
+                        current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
+                        
+                        # Count the number of samples for the batch
+                        sample_counter += 1
+                        print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
 
-                    # Gradients computation and backpropagation step if the batch size is reached
-                    optimizer_step = True if sample_counter == batch_size else False
-                    loss_value = trainer.backprop(Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step)
-                    
-                    # Update epochs samples counters and save snapshots
-                    if optimizer_step == True:
-                        epoch += 1
-                        sample_counter = 0
+                        # Gradients computation and backpropagation step if the batch size is reached
+                        optimizer_step = True if sample_counter == batch_size else False
+                        loss_value = trainer.backprop(Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step)
+                        
+                        # Update epochs samples counters and save snapshots
+                        if optimizer_step == True:
+                            epoch += 1
+                            sample_counter = 0
 
-                        # save and plot losses and rewards
-                        list_epochs_for_plot.append(epoch)
-                        losses.append(loss_value.cpu().detach().numpy())
-                        rewards.append(current_reward)
-                        trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
-                        trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
+                            # save and plot losses and rewards
+                            list_epochs_for_plot.append(epoch)
+                            losses.append(loss_value.cpu().detach().numpy())
+                            rewards.append(current_reward)
+                            trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
+                            trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
 
-                        # save snapshots and remove old ones if more than max_snapshots
-                        snapshot = trainer.save_snapshot(max_snapshots=5) 
+                            # save snapshots and remove old ones if more than max_snapshots
+                            snapshot = trainer.save_snapshot(max_snapshots=5) 
 
             
             # Updating the box heightmap and the objective function
@@ -435,18 +437,15 @@ def train(args):
     print('End of training')
 
 def test(args):
-
+    start_time_ep = time.time()  # Start time
     # Initialize snapshots
     snap = args.snapshot
     
     # Environment setup
     box_size = args.box_size
     resolution = args.resolution
-    list_epochs_for_plot, losses, rewards = [],[],[]
-
-    # Batch size for training
-    batch_size = args.batch_size
-
+    list_epochs_for_plot, rewards, losses,stability_of_packing_list, latencies = [],[], [], [], []
+    compactness_metric, stability_metric, piramidality_metric, n_packed_average = [], [], [], []
     for new_episode in range(args.new_episodes):
         # Check if k_min is greater than 2
         if args.k_min < 2:
@@ -461,22 +460,22 @@ def test(args):
                 
                 # First time the main loop is executed
                 if args.stage == 1:
-                    chosen_train_method = 'stage_1'
+                    chosen_test_method = 'stage_1'
                     if args.load_snapshot == True and snap!= None:
                         load_snapshot_ = True
                         episode = int(snap.split('_')[-3])
                         epoch = int(snap.split('_')[-1].strip('.pth'))
-                        sample_counter = 0
+                        packed_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
-                        print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
+                        print(f"{purple}Testing after", episode, f" episodes already simulated{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
                     else:
                         load_snapshot_ = False
                         episode = 0
                         epoch = 0
-                        sample_counter = 0
+                        packed_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE:", episode,f"{reset}")                
@@ -484,34 +483,34 @@ def test(args):
                         print('----------------------------------------')
 
                 elif args.stage == 2:
-                    chosen_train_method = 'stage_2'
+                    chosen_test_method = 'stage_2'
                     if args.load_snapshot == True and snap!= None:
                         load_snapshot_ = True
                         episode = int(snap.split('_')[-3])
                         epoch = int(snap.split('_')[-1].strip('.pth'))
-                        sample_counter = 0                        
+                        packed_counter = 0                        
                         print('----------------------------------------')
                         print('----------------------------------------')
-                        print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
+                        print(f"{purple}Continuing testing after", episode, f" episodes already simulated{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
                     else:
                         load_snapshot_ = False
                         episode = 0
                         epoch = 0
-                        sample_counter = 0
+                        packed_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE: ", episode,f"{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
-                # Initialize trainer
-                tester = Tester(method = chosen_train_method, force_cpu = args.force_cpu,
+                # Initialize tester
+                tester = Tester(method = chosen_test_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
         else:
                 # Not the first time the main loop is executed
-                episode = new_episode
+                episode = episode + 1
                 tester.episode = episode   
                 print('----------------------------------------')
                 print('----------------------------------------')
@@ -770,9 +769,13 @@ def test(args):
             input2_placement_HM_rp = torch.tensor(np.expand_dims(heightmaps_rp[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
 
             print(f"{blue_light}\nForward pass through the network: Predicting the next object to be packed and the Q values for every candidate pose {reset}\n")
-            print('---------------------------------------')           
+            print('---------------------------------------')    
+            start_time = time.time()  # Start time       
             Q_values, selected_obj, orients = tester.forward_network( input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
-            
+            end_time = time.time()  # Start time
+            latency = end_time - start_time  # Calculate latency
+            print(f"Latency for tester.forward_network(): {latency:.6f} seconds")
+            latencies.append(latency)  # Append latency to the list
             # Update tried objects and remove the selected object from the list of objects to be packed 
             tried_obj.append(selected_obj)
             indices = [i for i, x in enumerate(list(bbox_order)) if x in tried_obj]
@@ -795,48 +798,38 @@ def test(args):
             bbox_order = np.array([item for item in list(bbox_order) if item not in tried_obj])
 
             # Uncomment to plot Q-values
-            # Qvisual = trainer.visualize_Q_values(Q_values, show=True)
+            Qvisual = tester.visualize_Q_values(Q_values, show=False, save=True, path='snapshots/Q_values_test/')
             
             print(f"{blue_light}\nChecking placement validity for the best 10 poses {reset}\n")
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = tester.check_placement_validity(env, Q_values, orients, heightmap_box, selected_obj)
-            
-            if packed == False:
-                print(f"{bold}{red}OBJECT WITH ID: ", selected_obj, f" CANNOT BE PACKED{reset}")
-                print('---------------------------------------') 
-
+            stability_of_packing_list.append(stability_of_packing)
             # Compute the objective function
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function(env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
             
-            # The first iteration does not compute the reward since there are no previous objective function
-            if kk>= 1:
-                    # Compute reward and Q-target value
-                    print('Previous Objective function is: ', prev_obj)
-                    print('---------------------------------------')           
-                    current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
-                    
-                    # Count the number of samples for the batch
-                    sample_counter += 1
-                    print(f'{red}\nRecorded ', sample_counter, f' samples for 1 batch of training{reset}')
-
-                    # Gradients computation and backpropagation step if the batch size is reached
-                    optimizer_step = True if sample_counter == batch_size else False
-                    loss_value = trainer.backprop(Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step)
-                    
-                    # Update epochs samples counters and save snapshots
-                    if optimizer_step == True:
-                        epoch += 1
-                        sample_counter = 0
+            if packed == False:
+                print(f"{bold}{red}OBJECT WITH ID: ", selected_obj, f" CANNOT BE PACKED{reset}")
+                print('---------------------------------------') 
+                
+            elif packed == True: 
+                # Count the number of packed samples 
+                packed_counter += 1
+                print(f'{red}\nRecorded ', packed_counter, f' packed items.{reset}')
+                                                  
+                # The first iteration does not compute the reward since there are no previous objective function
+                if kk>= 1:
+                        # Compute reward and Q-target value
+                        print('Previous Objective function is: ', prev_obj)
+                        print('---------------------------------------')           
+                        current_reward, Q_target = tester.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
+                        loss_value = tester.loss(Q_values, Q_target, indices_rpy, pixel_x, pixel_y)
 
                         # save and plot losses and rewards
                         list_epochs_for_plot.append(epoch)
-                        losses.append(loss_value.cpu().detach().numpy())
                         rewards.append(current_reward)
-                        trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
-                        trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
-
-                        # save snapshots and remove old ones if more than max_snapshots
-                        snapshot = trainer.save_snapshot(max_snapshots=5) 
+                        losses.append(loss_value.cpu().detach().numpy())
+                        tester.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards_test')
+                        tester.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses_test')
 
             
             # Updating the box heightmap and the objective function
@@ -846,12 +839,51 @@ def test(args):
             print(f"{bold}{purple}\n -----> PASSING TO THE NEXT OBJECT{reset}\n")
             print('---------------------------------------') 
 
-        del(env)
-        gc.collect()
+        end_time_ep = time.time()  # Start time
+        # Compute compactness and piramidality
+        v_items_packed, _ = env.order_by_item_volume(env.packed)
+        compactness, piramidality = env.Compactness(env.packed, v_items_packed, env.box_heightmap() ), env.Pyramidality(env.packed, v_items_packed, env.box_heightmap() )
+        # Check if the list is not empty
+        if stability_of_packing_list:
+            # Compute the average
+            average_stability = sum(stability_of_packing_list) / len(stability_of_packing_list)
+        else:
+            average_stability = 0
+            print('The stability_of_packing_list is empty.')
+        
+        # Append the metrics to the lists    
+        compactness_metric.append(compactness) 
+        stability_metric.append(average_stability)
+        piramidality_metric.append(piramidality)
+        n_packed_average.append(packed_counter)
+        
+        print('---------------------------------------') 
+        print(f'{red_light}Compactness: ', compactness, f'{reset}')
+        print(f'{red_light}Piramidality: ', piramidality, f'{reset}')
+        print(f'{red_light}N packed items:',packed_counter, f'{reset}')
+        print(f'{red_light}Stability: ',average_stability, f'{reset}')
+        print(f'{red_light}Episode duration: ',end_time_ep - start_time_ep, f'{reset}')
+        print('---------------------------------------') 
         print(f'{red}END OF CURRENT EPISODE: ', episode, f'{reset}')
         
+        del(env)
+        gc.collect()
+        
+    average_stability_global = sum(stability_metric) / len(stability_metric)
+    average_compactness_global = sum(compactness_metric) / len(compactness_metric)
+    average_piramidality_global = sum(piramidality_metric) / len(piramidality_metric)
+    average_n_packed_global = sum(n_packed_average) / len(n_packed_average)
+    average_latency = sum(latencies) / len(latencies)
+    
+    print('---------------------------------------')
+    print(f'{red}Average Compactness: ', average_compactness_global, f'{reset}')
+    print(f'{red}Average Piramidality: ', average_piramidality_global, f'{reset}')
+    print(f'{red}Average Stability: ', average_stability_global, f'{reset}')
+    print(f'{red}Average N packed items:', average_n_packed_global, f'{reset}')
+    print(f'{red}Average Latency: ', average_latency, f'{reset}')
+    print('---------------------------------------')
+    print('End of testing')
 
-    print('Testing done')
 
 if __name__ == '__main__':
 
@@ -859,28 +891,25 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
-    parser.add_argument('--obj_folder_path',  action='store', default='objects/') # path to the folder containing the objects .csv file
+    parser.add_argument('--obj_folder_path',  action='store', default='/Project/Irregular-Object-Packing/objects/hard_setting/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
-    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
+    parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
     parser.add_argument('--k_max', action='store', default=50) # max number of objects to load
     parser.add_argument('--k_min', action='store', default=50) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=20) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=200) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
-    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_2_epoch_3.pth') # path to the  network snapshot
-    parser.add_argument('--new_episodes', action='store', default=5000) # number of episodes
-    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
+    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1788_epoch_215.pth') # path to the  network snapshot
+    parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=True) # Load snapshot 
     parser.add_argument('--batch_size', dest='batch_size', action='store', default=128) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
     args = parser.parse_args()
     
-    # --------------- Start Train ---------------
-    train(args) 
+    # --------------- Start Train --------------- 153 epochs stage 1 
+    #train(args) 
      # --------------- Start Test ---------------   NOT ready yet
-    #test(args)
-
-
-
+    test(args)
 

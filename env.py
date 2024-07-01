@@ -10,6 +10,7 @@ import os, csv
 import random
 import gc
 import math
+import trimesh
 
 '''
 This class defines the environment for the packing problem. It contains the following methods:
@@ -506,25 +507,37 @@ class Env(object):
         item: integer representing the id of the object
         output: float representing the volume of the object
         
-        Function to compute the volume of an item, taking into account rotations and scans to find the tightest enclosing volume.
+        Function to compute the volume of an item.
         ''' 
-        scan_sep = 0.005
         old_pos, old_quater = p.getBasePositionAndOrientation(item)
-        volume = np.inf # a big number
-        for row in np.arange(0, 2*np.pi, np.pi/4):
-            for pitch in np.arange(0, 2*np.pi, np.pi/4):
-                quater = p.getQuaternionFromEuler([row, pitch, 0])
-                p.resetBasePositionAndOrientation(item,[1,1,1],quater)
-                AABB = p.getAABB(item)
-                TopDown = self.grid_scan([AABB[0][0], AABB[1][0]], [AABB[0][1],AABB[1][1]],
-                                    AABB[1][2], AABB[0][2], scan_sep)
-                DownTop = self.grid_scan([AABB[0][0], AABB[1][0]], [AABB[0][1],AABB[1][1]],
-                                    AABB[0][2], AABB[1][2], scan_sep)
-                HeightDiff = TopDown-DownTop
-                HeightDiff[HeightDiff<0] = 0 # empty part
-                temp_v = np.sum(HeightDiff)*(scan_sep/0.01)**2
-                volume = min(volume, temp_v)
-        p.resetBasePositionAndOrientation(item,old_pos,old_quater)
+        
+        # Retrieve visual shape data
+        visual_shape_data = p.getVisualShapeData(item)
+
+        if len(visual_shape_data) == 0:
+            print("No visual shape data found for the item.")
+            return 0
+        
+        volume = 0
+        
+        for shape_data in visual_shape_data:
+            # Check if the shape type is mesh
+            if shape_data[2] == p.GEOM_MESH:
+                file_path = shape_data[4].decode('utf-8')
+                if not os.path.isabs(file_path):
+                    # If the path is not absolute, we need to construct the full path
+                    file_path = os.path.join(os.path.dirname(__file__), file_path)
+                
+                try:
+                    # Load the mesh using trimesh from the file path
+                    mesh = trimesh.load(file_path)
+                    volume += mesh.volume
+                except Exception as e:
+                    continue
+        
+        # Reset the position and orientation of the item
+        p.resetBasePositionAndOrientation(item, old_pos, old_quater)
+        
         return volume
     
     def pack_item_check_collision(self, item_id, transform, offsets):

@@ -94,7 +94,6 @@ class Trainer(object):
     # Compute target Q_target
     def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):
         '''
-        Q_values: predicted Q_values
         prev_obj: previous objective function value
         current_obj: current objective function value
         env: environment object
@@ -142,14 +141,33 @@ class Trainer(object):
             print(f"{blue_light}\nComputing loss and gradients on network{reset}")
             print('Training loss: %f' % (loss))
             print('---------------------------------------') 
-            #Inspect gradients
+            # Clip gradients
+            torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
+
+            # Inspect gradients
             # print('NETWORK GRAIDENTS:')
             # for name, param in self.selection_placement_net.named_parameters():
             #     if param.grad is not None:
             #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+            #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
             #     else:
             #         print(f"Layer: {name} | No gradients computed")
- 
+
+            # Check for NaN gradients
+            for name, param in self.selection_placement_net.named_parameters():
+                if param.grad is not None:
+                    if torch.isnan(param.grad).any():
+                        raise ValueError("Gradient of {name} is NaN!")
+
+            # for name, param in self.selection_placement_net.named_parameters():
+            #     if param.requires_grad and param.grad is not None:
+            #         plt.figure(figsize=(10, 5))
+            #         plt.title(f'Gradients for {name}')
+            #         plt.hist(param.grad.cpu().numpy().flatten(), bins=50, log=True)
+            #         plt.xlabel('Gradient Value')
+            #         plt.ylabel('Count')
+            #         plt.show()
+
             if optimizer_step == True:
                 print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
                 self.optimizer_worker.step()
@@ -253,7 +271,7 @@ class Trainer(object):
                 os.remove(files[1])
 
     # Visualize the predictions of the worker network: Q_values
-    def visualize_Q_values(self, Q_values, show = True):
+    def visualize_Q_values(self, Q_values, show = True, save = False, path = 'snapshots/Q_values/'):
         '''
         Q_values: numpy array of shape (1, n_rp, n_y, resolution, resolution)
         output: visualization of Q_values using colormaps
@@ -262,9 +280,9 @@ class Trainer(object):
         Q_values = Q_values.cpu().detach().numpy()
         num_rotations = Q_values.shape[0]
         resolution = Q_values.shape[1]
-        grid_rows = int(num_rotations/4)
-        grid_cols = int(num_rotations/4)
-        border_size = 10  # Size of the border in pixels
+        grid_rows = int(num_rotations/2)
+        grid_cols = int(num_rotations/2)
+        border_size = 10 # Size of the border in pixels
 
         # Adjust the size of the canvas to account for the borders
         canvas = np.zeros((grid_rows * (resolution + 2*border_size), 
@@ -288,6 +306,9 @@ class Trainer(object):
             cv2.imshow("Q Values", canvas)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
+        if save == True:
+            os.makedirs('snapshots/Q_values/', exist_ok=True)
+            cv2.imwrite(path + f'Q_values_episode_{self.episode}_epoch_{self.epoch}.png', canvas)
 
         return canvas
         
@@ -319,7 +340,7 @@ class Trainer(object):
         _, _, box_height = env.box_size
 
         # Determine the max number of tentatives to pack the object for each batch
-        tentatives = 10
+        tentatives = 1
         tentatives_sets= 0
         # Iterate over the batches
         # Calculate the start and end indices for this batch

@@ -23,14 +23,13 @@ import matplotlib.pyplot as plt
 import gc
 
 class Tester(object):
-    def __init__(self, method= 'stage_1', force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
+    def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
         
         self.n_y = n_y           # number of discrete yaw orientations
         self.method = method     # stage_1 or stage_2
         self.K = K               # total number of items to be packed
         self.epoch = epoch       # epoch counter
         self.episode = episode   # episode counter
-
 
         # Check if CUDA can be used
         if torch.cuda.is_available() and not force_cpu:
@@ -45,23 +44,28 @@ class Tester(object):
 
         # INITIALIZE NETWORK
         self.selection_placement_net = selection_placement_net(K = self.K, n_y = self.n_y, use_cuda = self.use_cuda, method = self.method)
-            
         # Initialize Huber loss
         self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
         self.future_reward_discount = future_reward_discount
-
+        
         # Load pre-trained model
         if load_snapshot:
-            self.selection_placement_net.load_state_dict(torch.load(file_snapshot))
+            if torch.cuda.is_available() and not force_cpu:
+                self.selection_placement_net.load_state_dict(torch.load(file_snapshot))
+            else:
+                # Load the state dict from the file with the map_location argument
+                state_dict = torch.load(file_snapshot, map_location=torch.device('cpu'))
+                # Load the state dict into the model
+                self.selection_placement_net.load_state_dict(state_dict)
+                print("Model state dict loaded successfully on CPU")
             print(f'{red}Pre-trained model snapshot loaded from: %s' % (file_snapshot),f'{reset}')
 
         # Convert model from CPU to GPU
         if self.use_cuda:
                 self.selection_placement_net = self.selection_placement_net.cuda()
 
-        # Set model to eval mode
+        # Set model to training mode
         self.selection_placement_net.eval()
-
         
         print('---------------------------------------------------')
         print(f"{bold}TESTER INITIALIZED.{reset}")
@@ -81,15 +85,15 @@ class Tester(object):
         orients: array with the roll, pitch and yaw angles considered ordered
         '''
         #-- placement network
-        Q_values, selected_obj, orients  = self.selection_placement_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
-        selected_obj_pybullet = int(input2_selection_ids.clone().cpu().detach()[selected_obj]) 
-        orients = orients.cpu().detach().numpy()
+        with torch.no_grad():
+            Q_values, selected_obj, orients  = self.selection_placement_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
+            selected_obj_pybullet = int(input2_selection_ids.clone().cpu().detach()[selected_obj]) 
+            orients = orients.cpu().detach().numpy()
         return  Q_values , selected_obj_pybullet, orients
     
     # Compute target Q_target
     def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):
         '''
-        Q_values: predicted Q_values
         prev_obj: previous objective function value
         current_obj: current objective function value
         env: environment object
@@ -110,6 +114,34 @@ class Tester(object):
         print('---------------------------------------')           
         return current_reward, Q_target
 
+    # Compute labels and backpropagate
+    def loss(self, Q_values, Q_target, indices_rpy, pixel_x, pixel_y):
+            '''
+            This function computes the gradients and backpropagates the loss across the networks
+
+            Q_values: predicted Q_values
+            Q_target: target Q_value
+            indices_rpy: index of the selected orientation
+            pixel_x: x coordinate of the selected pixel
+            pixel_y: y coordinate of the selected pixel
+            output:
+            loss: loss value
+            '''
+            
+
+            if self.use_cuda:
+                Q_target_tensor = torch.tensor(Q_target).cuda().float()
+                Q_target_tensor = Q_target_tensor.expand_as(Q_values[indices_rpy, pixel_x, pixel_y])
+            else:
+                Q_target_tensor = torch.tensor(Q_target).float()
+                Q_target_tensor = Q_target_tensor.expand_as(Q_values[ indices_rpy, pixel_x, pixel_y])
+            
+            loss = self.criterion(Q_values[indices_rpy, pixel_x, pixel_y], Q_target_tensor)
+            print(f"{blue_light}\nComputing loss and gradients on network{reset}")
+            print('Training loss: %f' % (loss))
+            print('---------------------------------------') 
+            return loss
+    
     def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images = 4):
         '''
         list_epochs_for_plot: list of epochs
@@ -191,7 +223,7 @@ class Tester(object):
                 os.remove(files[1])
 
     # Visualize the predictions of the worker network: Q_values
-    def visualize_Q_values(self, Q_values, show = True):
+    def visualize_Q_values(self, Q_values, show = True, save = False, path = 'snapshots/Q_values/'):
         '''
         Q_values: numpy array of shape (1, n_rp, n_y, resolution, resolution)
         output: visualization of Q_values using colormaps
@@ -200,9 +232,9 @@ class Tester(object):
         Q_values = Q_values.cpu().detach().numpy()
         num_rotations = Q_values.shape[0]
         resolution = Q_values.shape[1]
-        grid_rows = int(num_rotations/4)
-        grid_cols = int(num_rotations/4)
-        border_size = 10  # Size of the border in pixels
+        grid_rows = int(num_rotations/2)
+        grid_cols = int(num_rotations/2)
+        border_size = 10 # Size of the border in pixels
 
         # Adjust the size of the canvas to account for the borders
         canvas = np.zeros((grid_rows * (resolution + 2*border_size), 
@@ -226,6 +258,9 @@ class Tester(object):
             cv2.imshow("Q Values", canvas)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
+        if save == True:
+            os.makedirs('snapshots/Q_values/', exist_ok=True)
+            cv2.imwrite(path + f'Q_values_episode_{self.episode}_epoch_{self.epoch}.png', canvas)
 
         return canvas
         
@@ -257,7 +292,7 @@ class Tester(object):
         _, _, box_height = env.box_size
 
         # Determine the max number of tentatives to pack the object for each batch
-        tentatives = 10
+        tentatives = 1
         tentatives_sets= 0
         # Iterate over the batches
         # Calculate the start and end indices for this batch
@@ -344,7 +379,5 @@ class Tester(object):
         packed = False
         Q_max = Q_values[indices_rpy,pixel_x,pixel_y]
         return indices_rpy, pixel_x, pixel_y, False, 0 , packed, float(Q_max.cpu())
-
-        
 
 
