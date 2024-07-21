@@ -30,6 +30,14 @@ DA DECIDERE:
 va deciso come impostare poi il tutto, perche non so bene come gestirlo/ impostarlo perchè in base a come definisco experience il codice va adattato,
 experience = (boxHM, [selected_obj + orients], [current_reward + Q_target + Q_values[indices_rpy, pixel_x, pixel_y] ], NewBoxHeightMap)
 
-prova a mettere solo il minimo, poi Q_values e Q_target calcolate in backpropagtion --> fai copia di trainer e main e adatta in questo modo
+
+
+
+
+--> PROBLEMA CON BACKPROPAGATION, ERRORE PERCHÈ CHIAMATA PIÙ VOLTE: "Exception has occurred: RuntimeError Trying to backward through the graph a second 
+                                                                     time (or directly access saved tensors after they have already been freed)."
+    CERCA DI RISOLVERE, E DI TROVARE PERCHÈ CHIAMATA PIU VOLTE ANCHE SE NON COSÌ
+
++ prova a mettere solo il minimo, poi Q_values e Q_target calcolate in backpropagtion --> fai copia di trainer e main e adatta in questo modo
 
 

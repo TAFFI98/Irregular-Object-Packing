@@ -115,7 +115,7 @@ class Trainer(object):
         return current_reward, Q_target
 
     # Compute labels and backpropagate
-    def backprop(self, Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step):
+    def backprop_NEW(self, replay_buffer):
             '''
             This function computes the gradients and backpropagates the loss across the networks
 
@@ -127,17 +127,34 @@ class Trainer(object):
             output:
             loss: loss value
             '''
-            
+            losses = []
+            states, actions, rewards, next_state = replay_buffer.sample_batch()
 
-            if self.use_cuda:
-                Q_target_tensor = torch.tensor(Q_target).cuda().float()
-                Q_target_tensor = Q_target_tensor.expand_as(Q_values[indices_rpy, pixel_x, pixel_y])
+            for reward in rewards:
+                Q_target = reward[1]
+                Q_value = reward[2]
+                #Q_target = reward[:,1]
+                #Q_value = reward[:,2]
+                if self.use_cuda:
+                    Q_target_tensor = torch.tensor(Q_target).cuda().float()
+                    Q_target_tensor = Q_target_tensor.expand_as(Q_value)
+                else:
+                    Q_target_tensor = torch.tensor(Q_target).float()
+                    Q_target_tensor = Q_target_tensor.expand_as(Q_value)
+                
+                loss = self.criterion(Q_value, Q_target_tensor)
+                losses.append(loss)
+
+            # Convert list of losses to a single tensor
+            if losses:
+                losses_tensor = torch.stack(losses)
+                mean_loss = torch.mean(losses_tensor)
             else:
-                Q_target_tensor = torch.tensor(Q_target).float()
-                Q_target_tensor = Q_target_tensor.expand_as(Q_values[ indices_rpy, pixel_x, pixel_y])
-            
-            loss = self.criterion(Q_values[indices_rpy, pixel_x, pixel_y], Q_target_tensor)
-            loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+                raise ValueError("No losses to compute the mean from.")
+
+            print(f"{bold}{red}\n LOSS MEDIA CALCOLATA!!!!!!!!!!!!!!!!!!!!{reset}\n")
+
+            mean_loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
             print(f"{blue_light}\nComputing loss and gradients on network{reset}")
             print('Training loss: %f' % (loss))
             print('---------------------------------------') 
@@ -168,7 +185,7 @@ class Trainer(object):
             #         plt.ylabel('Count')
             #         plt.show()
 
-            if optimizer_step == True:
+            if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: #forse va messsa capacity del buffer e non batch size, ma non penso
                 print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
                 self.optimizer_worker.step()
                 print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
@@ -176,7 +193,7 @@ class Trainer(object):
                 self.optimizer_worker.zero_grad()
                 self.epoch = self.epoch+1
 
-                if self.epoch % 4 == 0 and self.method == 'stage_2':
+                if self.epoch % 4 == 0 and self.method == 'stage_2':                 #DA SISTEMAREEEEEEEEEEEEEEEEEEEEEEEE
                     print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
                     print('---------------------------------------') 
                     self.optimizer_manager.step()
@@ -188,7 +205,7 @@ class Trainer(object):
             if self.use_cuda:
                 torch.cuda.empty_cache()
 
-            return loss
+            return mean_loss
     
     def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images = 4):
         '''

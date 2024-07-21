@@ -11,6 +11,8 @@ from trainer import Trainer
 from tester import Tester
 from env import Env
 import torch
+
+from experience_replay import ExperienceReplayBuffer
 '''
 The main_module.py file is the main script to run the training and testing of the packing problem.
 The script is divided into two main functions: train and test.
@@ -30,6 +32,9 @@ def train(args):
     # Batch size for training
     batch_size = args.batch_size
 
+    # Initialize experience replay buffer       
+    replay_buffer = ExperienceReplayBuffer(args.replay_batch_size, args.replay_buffer_capacity)
+    
     for new_episode in range(args.new_episodes):
         # Check if k_min is greater than 2
         if args.k_min < 2:
@@ -377,8 +382,8 @@ def train(args):
 
             bbox_order = np.array([item for item in list(bbox_order) if item not in tried_obj])
 
-            # Uncomment to plot Q-values
-            Qvisual = trainer.visualize_Q_values(Q_values, show=False, save=True, path='snapshots/Q_values/')
+            # Plot Q-values --> set show and save to TRUE
+            Qvisual = trainer.visualize_Q_values(Q_values, show=False, save=False, path='snapshots/Q_values/')
             
             print(f"{blue_light}\nChecking placement validity for the best 10 poses {reset}\n")
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = trainer.check_placement_validity(env, Q_values, orients, heightmap_box, selected_obj)
@@ -399,18 +404,22 @@ def train(args):
                         print('---------------------------------------')           
                         current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
                         
+                        replay_buffer.add_experience(boxHM, [selected_obj, orients], [current_reward, Q_target, Q_values[indices_rpy, pixel_x, pixel_y] ], NewBoxHeightMap)
+
                         # Count the number of samples for the batch
                         sample_counter += 1
                         print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
 
                         # Gradients computation and backpropagation step if the batch size is reached
-                        optimizer_step = True if sample_counter == batch_size else False
-                        loss_value = trainer.backprop(Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step)
+                        # optimizer_step = True if sample_counter == batch_size else False
                         
+                        print(f"{bold}{red}\n eseguo back{reset}\n")
+                        loss_value = trainer.backprop_NEW(replay_buffer)
+                    
                         # Update epochs samples counters and save snapshots
-                        if optimizer_step == True:
-                            epoch += 1
-                            sample_counter = 0
+                        if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: #forse va messsa capacity del buffer e non batch size, ma non penso
+                            epoch += 1                  #NON PIU NECESSARI ORA (?)
+                            sample_counter = 0          #NON PIU NECESSARI ORA (?)
 
                             # save and plot losses and rewards
                             list_epochs_for_plot.append(epoch)
@@ -420,9 +429,10 @@ def train(args):
                             trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
 
                             # save snapshots and remove old ones if more than max_snapshots
+                            print(f"{bold}{red}\n HO SALVATO UNO SNAPSHOT!!!!!!!!!!!!!!!!!!!!{reset}\n")
                             snapshot = trainer.save_snapshot(max_snapshots=5) 
 
-            
+
             # Updating the box heightmap and the objective function
             prev_obj = current_obj
             heightmap_box = NewBoxHeightMap
@@ -891,25 +901,31 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
-    parser.add_argument('--obj_folder_path',  action='store', default='/Project/Irregular-Object-Packing/objects/hard_setting/') # path to the folder containing the objects .csv file
+    parser.add_argument('--obj_folder_path',  action='store', default='objects/easy_setting/') # path to the folder containing the objects .csv file
+    #parser.add_argument('--obj_folder_path',  action='store', default='/Project/Irregular-Object-Packing/objects/hard_setting/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
-    parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=50) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=50) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=20) # number of objects to consider for sorting
-    parser.add_argument('--resolution', dest='resolution', action='store', default=200) # resolution of the heightmaps
+    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
+    parser.add_argument('--k_max', action='store', default=5) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=5) # number of objects to consider for sorting
+    parser.add_argument('--resolution', dest='resolution', action='store', default=100) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
-    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1788_epoch_215.pth') # path to the  network snapshot
+    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1806_epoch_73.pth') # path to the  network snapshot
     parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
-    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=True) # Load snapshot 
-    parser.add_argument('--batch_size', dest='batch_size', action='store', default=128) # Batch size for training
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
+    parser.add_argument('--batch_size', dest='batch_size', action='store', default=5) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
+
+    # to improve performance: EXPERIENCE REPLAY
+    parser.add_argument('--replay_buffer_capacity', action='store', default=15) #size of the experience replay buffer ##############DA DECIDERE
+    parser.add_argument('--replay_batch_size', action='store', default=5) #size of the batch ebstracted from experience replay buffer ##############DA DECIDERE
+
     args = parser.parse_args()
     
-    # --------------- Start Train --------------- 153 epochs stage 1 
-    #train(args) 
-     # --------------- Start Test ---------------   NOT ready yet
-    test(args)
+    # --------------- Start Train --------------- 
+    train(args) 
+     # --------------- Start Test ---------------   
+    #test(args)
 
