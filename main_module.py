@@ -33,7 +33,7 @@ def train(args):
     batch_size = args.batch_size
 
     # Initialize experience replay buffer       
-    replay_buffer = ExperienceReplayBuffer(args.replay_batch_size, args.replay_buffer_capacity)
+    replay_buffer = ExperienceReplayBuffer(args.replay_buffer_capacity, args.replay_batch_size)
     
     for new_episode in range(args.new_episodes):
         # Check if k_min is greater than 2

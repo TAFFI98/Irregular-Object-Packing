@@ -127,6 +127,8 @@ class Trainer(object):
             output:
             loss: loss value
             '''
+            #tot_loss = 0
+            #count = 0
             losses = []
             states, actions, rewards, next_state = replay_buffer.sample_batch()
 
@@ -143,20 +145,26 @@ class Trainer(object):
                     Q_target_tensor = Q_target_tensor.expand_as(Q_value)
                 
                 loss = self.criterion(Q_value, Q_target_tensor)
+                #tot_loss += loss.item()
+                #count += 1
                 losses.append(loss)
 
-            # Convert list of losses to a single tensor
-            if losses:
-                losses_tensor = torch.stack(losses)
-                mean_loss = torch.mean(losses_tensor)
-            else:
-                raise ValueError("No losses to compute the mean from.")
 
+            total_loss = torch.stack(losses).sum()
+            mean_loss = total_loss / len(rewards)
+            """
+            mean_loss = tot_loss/count
+            if self.use_cuda:
+                mean_loss_tensor = torch.tensor(mean_loss).cuda().float()
+            else:
+                mean_loss_tensor = torch.tensor(mean_loss).float()
+            """
             print(f"{bold}{red}\n LOSS MEDIA CALCOLATA!!!!!!!!!!!!!!!!!!!!{reset}\n")
 
-            mean_loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+            #mean_loss_tensor.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+            mean_loss.backward(retain_graph=True) # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
             print(f"{blue_light}\nComputing loss and gradients on network{reset}")
-            print('Training loss: %f' % (loss))
+            print('Training loss: %f' % (mean_loss.item()))
             print('---------------------------------------') 
             # Clip gradients
             torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
@@ -184,8 +192,15 @@ class Trainer(object):
             #         plt.xlabel('Gradient Value')
             #         plt.ylabel('Count')
             #         plt.show()
+            
+            buffer_length = replay_buffer.get_buffer_length()
+            batch_size = replay_buffer.batch_size
+            print(f"Buffer Length: {buffer_length}, Batch Size: {batch_size}")
+
 
             if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: #forse va messsa capacity del buffer e non batch size, ma non penso
+                print(f"{bold}{red}\n FACCIO AGGIORNAMNETO!!!!!!!!!!!!!!!!!!!!{reset}\n")
+
                 print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
                 self.optimizer_worker.step()
                 print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
