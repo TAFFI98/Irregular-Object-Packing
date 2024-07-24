@@ -28,17 +28,22 @@ class ExperienceReplayBuffer(object):
     #        self.buffer.pop(0)          #if buffer full, then remove the oldest experience --> pop(0) rimuove elemento piu vecchio, gli altri scalano
     #    self.buffer.append(experience)
 
-    #modo 2 per aggiungere esperienza
+    # Add a new experience to the buffer
     def add_experience(self, state, action, reward, Q_target, Q_values, next_state):
+        
+        # Create a new experience
         experience = (state, action, reward, Q_target, Q_values, next_state)
+
         if len(self.buffer) >= self.buffer_capacity:
-            self.buffer.pop(0)          #if buffer full, then remove the oldest experience --> pop(0) rimuove elemento piu vecchio, gli altri scalano
+            self.buffer.pop(0)                          #if buffer full, then remove the oldest experience --> pop(0) rimuove elemento piu vecchio, gli altri scalano
+        
+        # Add the new experience
         self.buffer.append(experience)
 
-
-#ATTENZIONE "REWARDS" USATO ANCHE IN MAIN
-# modo 1
+    # Extract a (random) batch from the buffer
     def sample_batch(self):
+
+        # Since 
         if self.get_buffer_length() <= self.batch_size:
             batch = self.buffer
         else:
@@ -62,12 +67,13 @@ class ExperienceReplayBuffer(object):
 
         return states, actions, rewards, Q_targets, Q_values, next_states
     
-#modo 2
+    #modo 2
     #def sample_batch(self, batch_size):
     #    batch = random.sample(self.buffer, batch_size)
     #    states, actions, rewards, next_states = zip(*batch)
     #    return states, actions, rewards, next_states
     
+    # Give buffer lenght (number of episodes in the buffer)
     def get_buffer_length(self):
         """Return the current number of experiences in the buffer."""
         return len(self.buffer)

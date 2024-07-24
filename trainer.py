@@ -118,49 +118,16 @@ class Trainer(object):
     def backprop(self, replay_buffer):
             '''
             This function computes the gradients and backpropagates the loss across the networks
-
-            Q_values: predicted Q_values
-            Q_target: target Q_value
-            indices_rpy: index of the selected orientation
-            pixel_x: x coordinate of the selected pixel
-            pixel_y: y coordinate of the selected pixel
+            input:
+                replay_buffer: buffer containing the experiences
             output:
-            loss: loss value
+                loss: loss value
             '''
-            
-            """
-            losses = []
-            states, actions, rewards, next_state = replay_buffer.sample_batch()
-            #tot_loss = 0
-            #count = 0
-            for reward in rewards:
-                Q_target = reward[1]
-                Q_value = reward[2]
-                #Q_target = reward[:,1]
-                #Q_value = reward[:,2]
-                if self.use_cuda:
-                    Q_target_tensor = torch.tensor(Q_target).cuda().float()
-                    Q_target_tensor = Q_target_tensor.expand_as(Q_value)
-                else:
-                    Q_target_tensor = torch.tensor(Q_target).float()
-                    Q_target_tensor = Q_target_tensor.expand_as(Q_value)
-                
-                loss = self.criterion(Q_value, Q_target_tensor)
-                #tot_loss += loss.item()
-                #count += 1
-                losses.append(loss)
-
-            total_loss = torch.stack(losses).sum()
-            mean_loss = total_loss / len(rewards)
-            print(f"{bold}{red}\n LOSS MEDIA CALCOLATA!!!!!!!!!!!!!!!!!!!!{reset}\n")
-
-            mean_loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True.   
-            """
-
-
+            # Extract a (random) bacth of experiences from the buffer 
+            # Note: Q_values contains Q_values[indices_rpy, pixel_x, pixel_y] of each experience
             states, actions, rewards, Q_targets, Q_values, next_state = replay_buffer.sample_batch()
 
-
+            # Convert into tensor
             Q_values_tensor = torch.tensor(Q_values, requires_grad=True)
             if self.use_cuda:
                 Q_values_tensor = Q_values_tensor.cuda().float()
@@ -170,8 +137,10 @@ class Trainer(object):
 
             Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
 
-
+            # Compute loss
             loss = self.criterion(Q_values_tensor, Q_targets_tensor)
+
+            # Execute backpropagation
             loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
 
 
@@ -206,14 +175,19 @@ class Trainer(object):
             #         plt.show()
 
             if replay_buffer.get_buffer_length() >= replay_buffer.batch_size:
+
+                # Backpropagating loss on the worker network done each time a new object is packed
                 print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
                 self.optimizer_worker.step()
                 print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
                 print('---------------------------------------')  
                 self.optimizer_worker.zero_grad()
                 self.epoch = self.epoch+1
+                print(f"{bold}{red}AGGIORNO WORKER NETWORK!!!!!!!!!!!!!!!!!")
 
                 if self.epoch % 4 == 0 and self.method == 'stage_2':
+
+                    # Backpropagating loss on the worker network done every 4 epochs
                     print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
                     print('---------------------------------------') 
                     self.optimizer_manager.step()
@@ -221,6 +195,7 @@ class Trainer(object):
                     print(f"{purple}Network trained on ", int(self.epoch/ 4)+1, f"EPOCHS{reset}")
                     print('---------------------------------------')  
                     self.optimizer_manager.zero_grad()
+                    print(f"{bold}{red}AGGIORNO MANAGER NETWORK!!!!!!!!!!!!!!!!!")
 
             if self.use_cuda:
                 torch.cuda.empty_cache()
@@ -465,7 +440,7 @@ class Trainer(object):
         Q_max = Q_values[indices_rpy,pixel_x,pixel_y]
         return indices_rpy, pixel_x, pixel_y, False, 0 , packed, float(Q_max.cpu())
 
-        
+
     
     def save_snapshot(self, max_snapshots=5):
         """

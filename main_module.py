@@ -30,7 +30,7 @@ def train(args):
     list_epochs_for_plot, losses, rewards = [],[],[]
 
     # Batch size for training
-    batch_size = args.batch_size
+    # batch_size = args.batch_size
 
     # Initialize experience replay buffer       
     replay_buffer = ExperienceReplayBuffer(args.replay_buffer_capacity, args.replay_batch_size)
@@ -54,7 +54,7 @@ def train(args):
                         load_snapshot_ = True
                         episode = int(snap.split('_')[-3])
                         epoch = int(snap.split('_')[-1].strip('.pth'))
-                        sample_counter = 0
+                        #sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
@@ -64,7 +64,7 @@ def train(args):
                         load_snapshot_ = False
                         episode = 0
                         epoch = 0
-                        sample_counter = 0
+                        #sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE:", episode,f"{reset}")                
@@ -77,7 +77,7 @@ def train(args):
                         load_snapshot_ = True
                         episode = int(snap.split('_')[-3])
                         epoch = int(snap.split('_')[-1].strip('.pth'))
-                        sample_counter = 0                        
+                        #sample_counter = 0                        
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
@@ -87,13 +87,14 @@ def train(args):
                         load_snapshot_ = False
                         episode = 0
                         epoch = 0
-                        sample_counter = 0
+                        #sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE: ", episode,f"{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
                 # Initialize trainer
+                # Note: an epoch occurs each time the worker network is updated,  which happens whenever a new object is packed (once the experience replay is enough full)
                 trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
@@ -405,19 +406,20 @@ def train(args):
                         current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
                         
                         # Count the number of samples for the batch
-                        sample_counter += 1
-                        print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
+                        # sample_counter += 1
+                        # print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
 
+                        # Add the new experience to the replay buffer
                         replay_buffer.add_experience(heightmap_box, [selected_obj, orients], current_reward, Q_target, Q_values[indices_rpy, pixel_x, pixel_y], NewBoxHeightMap)
 
-                        # Gradients computation and backpropagation step if the batch size is reached
+                        # Gradients computation and backpropagation step if enough episodes in the buffer 
                         # optimizer_step = True if sample_counter == batch_size else False
                         loss_value = trainer.backprop(replay_buffer)
                         
                         # Update epochs samples counters and save snapshots
                         if replay_buffer.get_buffer_length() >= replay_buffer.batch_size:
                             epoch += 1
-                            sample_counter = 0
+                            #sample_counter = 0
 
                             # save and plot losses and rewards
                             list_epochs_for_plot.append(epoch)
@@ -910,12 +912,12 @@ if __name__ == '__main__':
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1788_epoch_215.pth') # path to the  network snapshot
     parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
     parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
-    parser.add_argument('--batch_size', dest='batch_size', action='store', default=5) # Batch size for training
+    #parser.add_argument('--batch_size', dest='batch_size', action='store', default=5) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
-
-    parser.add_argument('--replay_buffer_capacity', action='store', default=15) #size of the experience replay buffer ##############DA DECIDERE
-    parser.add_argument('--replay_batch_size', action='store', default=5) #size of the batch ebstracted from experience replay buffer ##############DA DECIDERE
+    # Experience  replay buffer:
+    parser.add_argument('--replay_buffer_capacity', action='store', default=30) #size of the experience replay buffer                     ##############DA DECIDERE
+    parser.add_argument('--replay_batch_size', action='store', default=10) #size of the batch ebstracted from experience replay buffer     ##############DA DECIDERE
 
     args = parser.parse_args()
     

@@ -10,7 +10,7 @@ import os, csv
 import random
 import gc
 import math
-import trimesh
+#import trimesh
 
 '''
 This class defines the environment for the packing problem. It contains the following methods:
