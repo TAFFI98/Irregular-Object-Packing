@@ -3,19 +3,27 @@ Durante il training, campiona periodicamente un'esperienza dal buffer di replay 
     --> (+) riduce la correlazione tra i dati di addestramento;
         (+) migliora la stabilità dell'addestramento.
 
-Implementazione del Buffer di Replay:
+Implementazione del Buffer di Replay (CREATA UNA CLASSE IN UN FILE .py):
     Creare una struttura dati (lista) per memorizzare le esperienze passate. 
+    Quando buffer raggiunge capacità massima, l'esperienza più vecchia viene rimossa
     Ogni esperienza include:
         Stato: Informazioni sullo stato corrente                        (es: heightmap degli oggetti, l'altezza attuale della scatola, heightmap della scatola)
         Azione: L'azione eseguita dal modello                           (es. selezione dell'oggetto da imballare e posa).
         Ricompensa: La ricompensa ottenuta per l'azione eseguita.
         Nuovo Stato: Lo stato successivo dopo aver eseguito l'azione.
-    --> creata classe su file .py
+    
+    =>  experience = (     state   ,         action          ,     reward    ,   ---   ,                  ---                   ,  new state     )
+        experience = ( BoxHeightMap, [selected_obj + orients], current_reward, Q_target, Q_values[indices_rpy, pixel_x, pixel_y], NewBoxHeightMap)
+
 
 Integrazione nel Codice Esistente (nel ciclo di training):
-    Dopo aver svolto forward propagation e aver calcolato il reward, salva l'esperienza corrente nel buffer di replay.
-    Quando è il momento di eseguire la back propagation non usa solo ultimo evento ma con l'experience replay, campiona un batch di esperienze dal buffer, 
-        estrai lo stato, l'azione, la ricompensa e il nuovo stato associato e utilizzali per addestrare il modello (esegue backpropagtion con questo batch).
+    Dopo aver svolto forward propagation e aver calcolato il reward, salva, nel buffer di replay, l'esperienza corrente (+ Q_target e Q_values[indices_rpy, pixel_x, pixel_y]).
+    Quando è il momento di eseguire la back propagation non usa solo ultimo evento ma campiona un batch casuale di esperienze dal buffer, 
+        estrai lo stato, l'azione, la ricompensa, Q_targets, Q_values e il nuovo stato associato e utilizzali per addestrare il modello (esegue backpropagtion con questo batch).
+    In particolare, usa Q_targets e Q_values per ottenere la loss e poi usa loss per eseguire la backpropagation.
+
+    NOTA: "Q_values" estratto dal buffer è un tensore che contiene Q_values[indices_rpy, pixel_x, pixel_y] di ogni esperienza "scelta" per il batch
+
 
 
 DA DECIDERE:
@@ -27,17 +35,15 @@ DA DECIDERE:
 -   Mantenimento dell'Equilibrio tra Esplorazione ed Utilizzo delle Esperienze.
 
 
-va deciso come impostare poi il tutto, perche non so bene come gestirlo/ impostarlo perchè in base a come definisco experience il codice va adattato,
-experience = (boxHM, [selected_obj + orients], [current_reward + Q_target + Q_values[indices_rpy, pixel_x, pixel_y] ], NewBoxHeightMap)
+
+--> MODIFICHE FATTE RISPETTO AL MAIN BRANCH
+    - aggiunto file .py per creare una classe per il buffer
+    - nel file trainer.py modificato il metdodo per la backpropagation
+    - nel file main.py aggiunte righe per definire i parametri del buffer e per "costruirlo"
+    - nel file main.py (nel loop per il packing, nel caso in cui oggetto sia effettivamente inserito) aggiunta riga per salvare la nuova esperienza
 
 
 
 
-
---> PROBLEMA CON BACKPROPAGATION, ERRORE PERCHÈ CHIAMATA PIÙ VOLTE: "Exception has occurred: RuntimeError Trying to backward through the graph a second 
-                                                                     time (or directly access saved tensors after they have already been freed)."
-    CERCA DI RISOLVERE, E DI TROVARE PERCHÈ CHIAMATA PIU VOLTE ANCHE SE NON COSÌ
-
-+ prova a mettere solo il minimo, poi Q_values e Q_target calcolate in backpropagtion --> fai copia di trainer e main e adatta in questo modo
-
+--> CERCA DI COSTRUIRE PRIORITIZED EXPERIENCE REPLAY
 

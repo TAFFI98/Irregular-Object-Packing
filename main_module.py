@@ -807,7 +807,7 @@ def test(args):
             bbox_order = np.array([item for item in list(bbox_order) if item not in tried_obj])
 
             # Uncomment to plot Q-values
-            Qvisual = tester.visualize_Q_values(Q_values, show=False, save=True, path='snapshots/Q_values_test/')
+            Qvisual = tester.visualize_Q_values(Q_values, show=False, save=False, path='snapshots/Q_values_test/')
             
             print(f"{blue_light}\nChecking placement validity for the best 10 poses {reset}\n")
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = tester.check_placement_validity(env, Q_values, orients, heightmap_box, selected_obj)
@@ -903,13 +903,13 @@ if __name__ == '__main__':
     parser.add_argument('--obj_folder_path',  action='store', default='objects/easy_setting/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
-    parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
+    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
     parser.add_argument('--k_max', action='store', default=5) # max number of objects to load
     parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=5) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=100) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
-    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1788_epoch_215.pth') # path to the  network snapshot
+    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_42_epoch_93.pth') # path to the  network snapshot
     parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
     parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
     #parser.add_argument('--batch_size', dest='batch_size', action='store', default=5) # Batch size for training
@@ -922,6 +922,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # --------------- Start Train --------------- 153 epochs stage 1 
-    train(args) 
+    #train(args) 
      # --------------- Start Test ---------------   NOT ready yet
-    #test(args)
+    test(args)
