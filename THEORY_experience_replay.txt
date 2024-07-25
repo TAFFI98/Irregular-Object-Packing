@@ -3,7 +3,7 @@ Durante il training, campiona periodicamente un'esperienza dal buffer di replay 
     --> (+) riduce la correlazione tra i dati di addestramento;
         (+) migliora la stabilità dell'addestramento.
 
-Implementazione del Buffer di Replay (CREATA UNA CLASSE IN UN FILE .py):
+1- Implementazione del Buffer di Replay (CREATA UNA CLASSE IN UN FILE .py):
     Creare una struttura dati (lista) per memorizzare le esperienze passate. 
     Quando buffer raggiunge capacità massima, l'esperienza più vecchia viene rimossa
     Ogni esperienza include:
@@ -16,7 +16,7 @@ Implementazione del Buffer di Replay (CREATA UNA CLASSE IN UN FILE .py):
         experience = ( BoxHeightMap, [selected_obj + orients], current_reward, Q_target, Q_values[indices_rpy, pixel_x, pixel_y], NewBoxHeightMap)
 
 
-Integrazione nel Codice Esistente (nel ciclo di training):
+2- Integrazione nel Codice Esistente (nel ciclo di training):
     Dopo aver svolto forward propagation e aver calcolato il reward, salva, nel buffer di replay, l'esperienza corrente (+ Q_target e Q_values[indices_rpy, pixel_x, pixel_y]).
     Quando è il momento di eseguire la back propagation non usa solo ultimo evento ma campiona un batch casuale di esperienze dal buffer, 
         estrai lo stato, l'azione, la ricompensa, Q_targets, Q_values e il nuovo stato associato e utilizzali per addestrare il modello (esegue backpropagtion con questo batch).

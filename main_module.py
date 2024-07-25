@@ -922,6 +922,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # --------------- Start Train --------------- 153 epochs stage 1 
-    #train(args) 
+    train(args) 
      # --------------- Start Test ---------------   NOT ready yet
-    test(args)
+    #test(args)
