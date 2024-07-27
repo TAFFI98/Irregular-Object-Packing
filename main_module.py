@@ -12,7 +12,7 @@ from tester import Tester
 from env import Env
 import torch
 
-from experience_replay import ExperienceReplayBuffer
+from prioritized_exp_replay import PrioritizedExpeReplayBuffer
 '''
 The main_module.py file is the main script to run the training and testing of the packing problem.
 The script is divided into two main functions: train and test.
@@ -30,10 +30,10 @@ def train(args):
     list_epochs_for_plot, losses, rewards = [],[],[]
 
     # Batch size for training
-    batch_size = args.batch_size
+    # batch_size = args.batch_size
 
     # Initialize experience replay buffer       
-    replay_buffer = ExperienceReplayBuffer(args.replay_buffer_capacity, args.replay_batch_size)
+    replay_buffer = PrioritizedExpeReplayBuffer(args.replay_buffer_capacity, args.replay_batch_size, args.PER_alpha, args.PER_beta, args.beta_increment_per_sampling, args.PER_epsilon)
     
     for new_episode in range(args.new_episodes):
         # Check if k_min is greater than 2
@@ -54,7 +54,7 @@ def train(args):
                         load_snapshot_ = True
                         episode = int(snap.split('_')[-3])
                         epoch = int(snap.split('_')[-1].strip('.pth'))
-                        sample_counter = 0
+                        #sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
@@ -64,7 +64,7 @@ def train(args):
                         load_snapshot_ = False
                         episode = 0
                         epoch = 0
-                        sample_counter = 0
+                        #sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE:", episode,f"{reset}")                
@@ -77,7 +77,7 @@ def train(args):
                         load_snapshot_ = True
                         episode = int(snap.split('_')[-3])
                         epoch = int(snap.split('_')[-1].strip('.pth'))
-                        sample_counter = 0                        
+                        #sample_counter = 0                        
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
@@ -87,7 +87,7 @@ def train(args):
                         load_snapshot_ = False
                         episode = 0
                         epoch = 0
-                        sample_counter = 0
+                        #sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE: ", episode,f"{reset}")                
@@ -404,22 +404,21 @@ def train(args):
                         print('---------------------------------------')           
                         current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
                         
-                        replay_buffer.add_experience(boxHM, [selected_obj, orients], [current_reward, Q_target, Q_values[indices_rpy, pixel_x, pixel_y] ], NewBoxHeightMap)
+                        replay_buffer.add_experience(boxHM, [selected_obj, orients], current_reward, Q_target, Q_values[indices_rpy, pixel_x, pixel_y], NewBoxHeightMap)
 
                         # Count the number of samples for the batch
-                        sample_counter += 1
-                        print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
+                        #sample_counter += 1
+                        #print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
 
                         # Gradients computation and backpropagation step if the batch size is reached
                         # optimizer_step = True if sample_counter == batch_size else False
                         
-                        print(f"{bold}{red}\n eseguo back{reset}\n")
-                        loss_value = trainer.backprop_NEW(replay_buffer)
+                        loss_value = trainer.backprop(replay_buffer)
                     
                         # Update epochs samples counters and save snapshots
                         if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: #forse va messsa capacity del buffer e non batch size, ma non penso
-                            epoch += 1                  #NON PIU NECESSARI ORA (?)
-                            sample_counter = 0          #NON PIU NECESSARI ORA (?)
+                            epoch += 1                  
+                            #sample_counter = 0          
 
                             # save and plot losses and rewards
                             list_epochs_for_plot.append(epoch)
@@ -429,7 +428,6 @@ def train(args):
                             trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
 
                             # save snapshots and remove old ones if more than max_snapshots
-                            print(f"{bold}{red}\n HO SALVATO UNO SNAPSHOT!!!!!!!!!!!!!!!!!!!!{reset}\n")
                             snapshot = trainer.save_snapshot(max_snapshots=5) 
 
 
@@ -914,13 +912,17 @@ if __name__ == '__main__':
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1806_epoch_73.pth') # path to the  network snapshot
     parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
     parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
-    parser.add_argument('--batch_size', dest='batch_size', action='store', default=5) # Batch size for training
+    #parser.add_argument('--batch_size', dest='batch_size', action='store', default=5) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
 
-    # to improve performance: EXPERIENCE REPLAY
-    parser.add_argument('--replay_buffer_capacity', action='store', default=15) #size of the experience replay buffer ##############DA DECIDERE
-    parser.add_argument('--replay_batch_size', action='store', default=5) #size of the batch ebstracted from experience replay buffer ##############DA DECIDERE
+    # to improve performance: PRIORITIZED EXPERIENCE REPLAY (PER)
+    parser.add_argument('--replay_buffer_capacity', action='store', default=15) #size of the experience replay buffer                      ##############DA DECIDERE
+    parser.add_argument('--replay_batch_size', action='store', default=5) #size of the batch ebstracted from experience replay buffer      ##############DA DECIDERE
+    parser.add_argument('--PER_alpha', action='store', default=5) #size of the batch ebstracted from experience replay buffer      ##############DA DECIDERE
+    parser.add_argument('--PER_beta', action='store', default=5) #size of the batch ebstracted from experience replay buffer      ##############DA DECIDERE
+    parser.add_argument('--PER_epsilon', action='store', default=5) #      ##############DA DECIDERE
+    parser.add_argument('--beta_increment_per_sampling', action='store', default=5) #      ##############DA DECIDERE
 
     args = parser.parse_args()
     

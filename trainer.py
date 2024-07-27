@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import gc
+ 
 
 class Trainer(object):
     def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
@@ -115,112 +116,90 @@ class Trainer(object):
         return current_reward, Q_target
 
     # Compute labels and backpropagate
-    def backprop_NEW(self, replay_buffer):
-            '''
-            This function computes the gradients and backpropagates the loss across the networks
-
-            Q_values: predicted Q_values
-            Q_target: target Q_value
-            indices_rpy: index of the selected orientation
-            pixel_x: x coordinate of the selected pixel
-            pixel_y: y coordinate of the selected pixel
-            output:
+    def backprop(self, replay_buffer):
+        '''
+        This function computes the gradients and backpropagates the loss across the networks
+        input:
+            replay_buffer: buffer containing the experiences
+        output:
             loss: loss value
-            '''
-            #tot_loss = 0
-            #count = 0
-            losses = []
-            states, actions, rewards, next_state = replay_buffer.sample_batch()
+        '''
+        # Extract a (random) bacth of experiences from the buffer 
+        # Note: Q_values contains Q_values[indices_rpy, pixel_x, pixel_y] of each experience
+        states, actions, rewards, Q_targets, Q_values, next_state = replay_buffer.sample_batch()
 
-            for reward in rewards:
-                Q_target = reward[1]
-                Q_value = reward[2]
-                #Q_target = reward[:,1]
-                #Q_value = reward[:,2]
-                if self.use_cuda:
-                    Q_target_tensor = torch.tensor(Q_target).cuda().float()
-                    Q_target_tensor = Q_target_tensor.expand_as(Q_value)
-                else:
-                    Q_target_tensor = torch.tensor(Q_target).float()
-                    Q_target_tensor = Q_target_tensor.expand_as(Q_value)
-                
-                loss = self.criterion(Q_value, Q_target_tensor)
-                #tot_loss += loss.item()
-                #count += 1
-                losses.append(loss)
+        # Convert into tensor
+        Q_values_tensor = torch.tensor(Q_values, requires_grad=True)
+        if self.use_cuda:
+            Q_values_tensor = Q_values_tensor.cuda().float()
+            Q_targets_tensor = torch.tensor(Q_targets, requires_grad=True).cuda().float()
+        else:
+            Q_targets_tensor = torch.tensor(Q_targets, requires_grad=True).float()
+        Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
 
+        # Compute loss
+        loss = self.criterion(Q_values_tensor, Q_targets_tensor)
+        loss.backward()  # Computes the gradient of the loss with respect to all tensors with requires_grad=True
 
-            total_loss = torch.stack(losses).sum()
-            mean_loss = total_loss / len(rewards)
-            """
-            mean_loss = tot_loss/count
-            if self.use_cuda:
-                mean_loss_tensor = torch.tensor(mean_loss).cuda().float()
-            else:
-                mean_loss_tensor = torch.tensor(mean_loss).float()
-            """
-            print(f"{bold}{red}\n LOSS MEDIA CALCOLATA!!!!!!!!!!!!!!!!!!!!{reset}\n")
+        print(f"{blue_light}\nComputing loss and gradients on network{reset}")
+        print('Training loss: %f' % (loss))
+        print('---------------------------------------') 
+        # Clip gradients
+        torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
 
-            #mean_loss_tensor.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-            mean_loss.backward(retain_graph=True) # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-            print(f"{blue_light}\nComputing loss and gradients on network{reset}")
-            print('Training loss: %f' % (mean_loss.item()))
-            print('---------------------------------------') 
-            # Clip gradients
-            torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
+        # Inspect gradients
+        # print('NETWORK GRAIDENTS:')
+        # for name, param in self.selection_placement_net.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
+        #     else:
+        #         print(f"Layer: {name} | No gradients computed")
 
-            # Inspect gradients
-            # print('NETWORK GRAIDENTS:')
-            # for name, param in self.selection_placement_net.named_parameters():
-            #     if param.grad is not None:
-            #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
-            #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
-            #     else:
-            #         print(f"Layer: {name} | No gradients computed")
+        # Check for NaN gradients
+        for name, param in self.selection_placement_net.named_parameters():
+            if param.grad is not None:
+                if torch.isnan(param.grad).any():
+                    raise ValueError("Gradient of {name} is NaN!")
 
-            # Check for NaN gradients
-            for name, param in self.selection_placement_net.named_parameters():
-                if param.grad is not None:
-                    if torch.isnan(param.grad).any():
-                        raise ValueError("Gradient of {name} is NaN!")
+        # for name, param in self.selection_placement_net.named_parameters():
+        #     if param.requires_grad and param.grad is not None:
+        #         plt.figure(figsize=(10, 5))
+        #         plt.title(f'Gradients for {name}')
+        #         plt.hist(param.grad.cpu().numpy().flatten(), bins=50, log=True)
+        #         plt.xlabel('Gradient Value')
+        #         plt.ylabel('Count')
+        #         plt.show()
 
-            # for name, param in self.selection_placement_net.named_parameters():
-            #     if param.requires_grad and param.grad is not None:
-            #         plt.figure(figsize=(10, 5))
-            #         plt.title(f'Gradients for {name}')
-            #         plt.hist(param.grad.cpu().numpy().flatten(), bins=50, log=True)
-            #         plt.xlabel('Gradient Value')
-            #         plt.ylabel('Count')
-            #         plt.show()
-            
-            buffer_length = replay_buffer.get_buffer_length()
-            batch_size = replay_buffer.batch_size
-            print(f"Buffer Length: {buffer_length}, Batch Size: {batch_size}")
+        if replay_buffer.get_buffer_length() >= replay_buffer.batch_size:
 
+            # Backpropagating loss on the worker network done each time a new object is packed
+            print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
+            self.optimizer_worker.step()
+            print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
+            print('---------------------------------------')  
+            self.optimizer_worker.zero_grad()
+            self.epoch = self.epoch+1
+            print(f"{bold}{red}AGGIORNO WORKER NETWORK!!!!!!!!!!!!!!!!!")
 
-            if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: #forse va messsa capacity del buffer e non batch size, ma non penso
-                print(f"{bold}{red}\n FACCIO AGGIORNAMNETO!!!!!!!!!!!!!!!!!!!!{reset}\n")
+            if self.epoch % 4 == 0 and self.method == 'stage_2':
 
-                print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
-                self.optimizer_worker.step()
-                print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
+                # Backpropagating loss on the worker network done every 4 epochs
+                print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
+                print('---------------------------------------') 
+                self.optimizer_manager.step()
+                print('---------------------------------------')           
+                print(f"{purple}Network trained on ", int(self.epoch/ 4)+1, f"EPOCHS{reset}")
                 print('---------------------------------------')  
-                self.optimizer_worker.zero_grad()
-                self.epoch = self.epoch+1
+                self.optimizer_manager.zero_grad()
+                print(f"{bold}{red}AGGIORNO MANAGER NETWORK!!!!!!!!!!!!!!!!!")
 
-                if self.epoch % 4 == 0 and self.method == 'stage_2':                 #DA SISTEMAREEEEEEEEEEEEEEEEEEEEEEEE
-                    print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
-                    print('---------------------------------------') 
-                    self.optimizer_manager.step()
-                    print('---------------------------------------')           
-                    print(f"{purple}Network trained on ", int(self.epoch/ 4)+1, f"EPOCHS{reset}")
-                    print('---------------------------------------')  
-                    self.optimizer_manager.zero_grad()
+        if self.use_cuda:
+            torch.cuda.empty_cache()
 
-            if self.use_cuda:
-                torch.cuda.empty_cache()
-
-            return mean_loss
+        return loss
+    
+    
     
     def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images = 4):
         '''
@@ -482,3 +461,153 @@ class Trainer(object):
 
         return  f'snapshots/models/network_episode_{self.episode}_epoch_{self.epoch}.pth'
 
+"""
+    def recompute_bellman_errors(self, replay_buffer):
+        
+        #Ricalcola l'errore di Bellman per tutte le esperienze nel replay buffer.
+        if replay_buffer.get_buffer_length() == 0:
+            return
+        
+        states, actions, rewards, Q_targets, Q_values, next_states, weights = replay_buffer.sample_batch()
+        
+        # Converti le esperienze in tensori
+        print(type(states))
+        print(len(states))
+        if len(states) > 0:
+            print(type(states[0]))
+            print(len(states[0]))
+        states_tensor = torch.tensor(states, dtype=torch.float32)
+        actions_tensor = torch.tensor(actions, dtype=torch.int64)
+        rewards_tensor = torch.tensor(rewards, dtype=torch.float32)
+        next_states_tensor = torch.tensor(next_states, dtype=torch.float32)
+        
+        if self.use_cuda:
+            states_tensor = states_tensor.cuda()
+            actions_tensor = actions_tensor.cuda()
+            rewards_tensor = rewards_tensor.cuda()
+            next_states_tensor = next_states_tensor.cuda()
+        
+        # Calcola i Q-values aggiornati per gli stati successivi
+        Q_next_values = self.selection_placement_net.get_q_values(next_states_tensor).detach()
+        Q_next_max = Q_next_values.max(dim=1)[0]
+        
+        # Calcola i nuovi errori di Bellman
+        Q_values_tensor = self.selection_placement_net.get_q_values(states_tensor).detach()
+        Q_values_for_actions = Q_values_tensor.gather(1, actions_tensor.unsqueeze(1)).squeeze(1)
+        
+        td_errors = rewards_tensor + self.future_reward_discount * Q_next_max - Q_values_for_actions
+        
+        # Aggiorna le priorità nel buffer di replay
+        replay_buffer.update_priorities(np.arange(len(td_errors)), td_errors.cpu().numpy())
+        
+        print(f"{blue_light}\nBellman errors recomputed and priorities updated{reset}\n")
+
+
+    # Compute labels and backpropagate
+    def backprop(self, replay_buffer):
+        '''
+        This function computes the gradients and backpropagates the loss across the networks
+        input:
+            replay_buffer: buffer containing the experiences
+        output:
+            loss: loss value
+        '''
+        # Extract a (random) bacth of experiences from the buffer 
+        # Note: Q_values contains Q_values[indices_rpy, pixel_x, pixel_y] of each experience
+        states, actions, rewards, Q_targets, Q_values, next_state, weights = replay_buffer.sample_batch()
+
+        # Convert into tensor
+        Q_values_tensor = torch.tensor(Q_values, requires_grad=True)
+        if self.use_cuda:
+            Q_values_tensor = Q_values_tensor.cuda().float()
+            Q_targets_tensor = torch.tensor(Q_targets, requires_grad=True).cuda().float()
+        else:
+            Q_targets_tensor = torch.tensor(Q_targets, requires_grad=True).float()
+        Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+
+        # Compute loss
+        loss = self.criterion(Q_values_tensor, Q_targets_tensor)
+
+        # Convert weights into a tensor and move it to the same device as the loss tensors
+        weights_tensor = torch.tensor(weights, dtype=torch.float32)
+        if self.use_cuda:
+            weights_tensor = weights_tensor.cuda()
+        # Ensure that the weights have the same shape as the loss
+        # weights_tensor = weights_tensor.expand_as(loss)
+
+
+        # Multiply the loss by the importance weights
+        weighted_loss = loss * weights_tensor
+
+        # Compute the mean weighted loss
+        mean_weighted_loss = weighted_loss.mean()
+        mean_weighted_loss.backward()  # Computes the gradient of the loss with respect to all tensors with requires_grad=True
+
+        # Execute backpropagation
+        # weighted_loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+
+
+        print(f"{blue_light}\nComputing loss and gradients on network{reset}")
+        print('Training loss: %f' % (mean_weighted_loss))
+        print('---------------------------------------') 
+        # Clip gradients
+        torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
+
+        # Inspect gradients
+        # print('NETWORK GRAIDENTS:')
+        # for name, param in self.selection_placement_net.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
+        #     else:
+        #         print(f"Layer: {name} | No gradients computed")
+
+        # Check for NaN gradients
+        for name, param in self.selection_placement_net.named_parameters():
+            if param.grad is not None:
+                if torch.isnan(param.grad).any():
+                    raise ValueError("Gradient of {name} is NaN!")
+
+        # for name, param in self.selection_placement_net.named_parameters():
+        #     if param.requires_grad and param.grad is not None:
+        #         plt.figure(figsize=(10, 5))
+        #         plt.title(f'Gradients for {name}')
+        #         plt.hist(param.grad.cpu().numpy().flatten(), bins=50, log=True)
+        #         plt.xlabel('Gradient Value')
+        #         plt.ylabel('Count')
+        #         plt.show()
+
+        if replay_buffer.get_buffer_length() >= replay_buffer.batch_size:
+
+            # Backpropagating loss on the worker network done each time a new object is packed
+            print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
+            self.optimizer_worker.step()
+            print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
+            print('---------------------------------------')  
+            self.optimizer_worker.zero_grad()
+            self.epoch = self.epoch+1
+            print(f"{bold}{red}AGGIORNO WORKER NETWORK!!!!!!!!!!!!!!!!!")
+
+            if self.epoch % 4 == 0 and self.method == 'stage_2':
+
+                # Backpropagating loss on the worker network done every 4 epochs
+                print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
+                print('---------------------------------------') 
+                self.optimizer_manager.step()
+                print('---------------------------------------')           
+                print(f"{purple}Network trained on ", int(self.epoch/ 4)+1, f"EPOCHS{reset}")
+                print('---------------------------------------')  
+                self.optimizer_manager.zero_grad()
+                print(f"{bold}{red}AGGIORNO MANAGER NETWORK!!!!!!!!!!!!!!!!!")
+
+        if self.use_cuda:
+            torch.cuda.empty_cache()
+
+        # Update priorities in the replay buffer
+        # Ricalcola e aggiorna gli errori di Bellman
+        self.recompute_bellman_errors(replay_buffer)
+
+        return mean_weighted_loss
+    
+    
+"""

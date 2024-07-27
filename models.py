@@ -4,7 +4,7 @@ Created on  Apr 3 2024
 
 @author: Taffi
 """
-from torchview import draw_graph
+#from torchview import draw_graph
 import pybullet as p
 import numpy as np
 import torch
@@ -83,7 +83,12 @@ class selection_net(nn.Module):
         # Freeze the parameters of the backbone networks
         for backbone in self.backbones:
             for param in backbone.parameters():
-                param.requires_grad = False		
+                param.requires_grad = False	
+
+    def get_q_values(self, states):
+        # Assicurati che questo metodo ritorni i valori Q per un dato stato
+        # Modifica a seconda della tua architettura di rete
+        return self.forward(states)	
 
     def initialize_backbone(self):
         # Initialize ResNet backbone

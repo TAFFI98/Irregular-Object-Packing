@@ -1,43 +1,14 @@
+link video con breve spiegazione: https://www.youtube.com/watch?v=MqZmwQoOXw4
 
-Durante il training, campiona periodicamente un'esperienza dal buffer di replay anziché utilizzare solo l'esperienza corrente
-    --> (+) riduce la correlazione tra i dati di addestramento;
-        (+) migliora la stabilità dell'addestramento.
+Le esperienze vengono memorizzate in un buffer di replay. 
+Per eseguire l'addestramento, queste esperienze non vengono più campionate in modo casuale dal buffer, perché non tutte le esperienze hanno lo stesso 
+valore informativo. Alcune esperienze possono essere più utili perché portano a grandi variazioni nella stima della funzione Q, mentre altre possono essere 
+ridondanti o meno rilevanti.
+L'idea principale del Prioritized Experience Replay (PER) è di assegnare una priorità alle esperienze nel buffer di replay, in modo che le esperienze più utili 
+vengano campionate con maggiore frequenza. Questo accelera il processo di apprendimento e migliorando la performance.
 
-Implementazione del Buffer di Replay:
-    Creare una struttura dati (lista) per memorizzare le esperienze passate. 
-    Ogni esperienza include:
-        Stato: Informazioni sullo stato corrente                        (es: heightmap degli oggetti, l'altezza attuale della scatola, heightmap della scatola)
-        Azione: L'azione eseguita dal modello                           (es. selezione dell'oggetto da imballare e posa).
-        Ricompensa: La ricompensa ottenuta per l'azione eseguita.
-        Nuovo Stato: Lo stato successivo dopo aver eseguito l'azione.
-    --> creata classe su file .py
-
-Integrazione nel Codice Esistente (nel ciclo di training):
-    Dopo aver svolto forward propagation e aver calcolato il reward, salva l'esperienza corrente nel buffer di replay.
-    Quando è il momento di eseguire la back propagation non usa solo ultimo evento ma con l'experience replay, campiona un batch di esperienze dal buffer, 
-        estrai lo stato, l'azione, la ricompensa e il nuovo stato associato e utilizzali per addestrare il modello (esegue backpropagtion con questo batch).
+NOTA: Poiché il campionamento non è più uniforme (le esperienze non sono più scelte a caso dal buffer, ma secondo la loro priorità), viene introdotto un bias.
+      Bias corretto usando pesi di importanza
 
 
-DA DECIDERE:
--   CAPACITY: Dimensione del Buffer di Replay, influenza quanto tempo l'esperienza rimane nella memoria. 
-
--   Frequenza di Experience Replay (quanto spesso eseguire l'experience replay) --> BATCH SIZE
-    ES: dopo ogni episodio, ogni batch di addestramento, o ad intervalli casuali.
-
--   Mantenimento dell'Equilibrio tra Esplorazione ed Utilizzo delle Esperienze.
-
-
-va deciso come impostare poi il tutto, perche non so bene come gestirlo/ impostarlo perchè in base a come definisco experience il codice va adattato,
-experience = (boxHM, [selected_obj + orients], [current_reward + Q_target + Q_values[indices_rpy, pixel_x, pixel_y] ], NewBoxHeightMap)
-
-
-
-
-
---> PROBLEMA CON BACKPROPAGATION, ERRORE PERCHÈ CHIAMATA PIÙ VOLTE: "Exception has occurred: RuntimeError Trying to backward through the graph a second 
-                                                                     time (or directly access saved tensors after they have already been freed)."
-    CERCA DI RISOLVERE, E DI TROVARE PERCHÈ CHIAMATA PIU VOLTE ANCHE SE NON COSÌ
-
-+ prova a mettere solo il minimo, poi Q_values e Q_target calcolate in backpropagtion --> fai copia di trainer e main e adatta in questo modo
-
-
+AGGIORNARE LE PRIORITÀ ???????????????????
