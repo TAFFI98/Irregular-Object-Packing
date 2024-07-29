@@ -605,6 +605,35 @@ class Env(object):
         
         return NewBoxHeightMap, stability, old_pos, old_quater,  collision, limits_obj_line_ids, height_exceeded_before_pack
     
+    def check_collision_new(self, item_id, transform, offsets):
+        '''
+        item_id: integer representing the id of the object
+        transform: list of 6 elements [target_euler, target_pos]
+        offsets: list of 6 elements [offset_pointminx_COM, offset_pointmaxx_COM, offset_pointminy_COM, offset_pointmaxy_COM, offset_pointminz_COM, offset_pointmaxz_COM]
+        outputs:
+        NewBoxHeightMap: numpy array of shape (resolution, resolution) representing the new box heightmap
+        stability: integer representing the stability of the item
+        old_pos: list of 3 elements representing the old position of the item
+        old_quater: list of 4 elements representing the old orientation of the item
+        collision: boolean indicating if the item collides with the box margins
+        limits_obj_line_ids: list of integers representing the line ids
+        height_exceeded_before_pack: boolean indicating if the height of the box is exceeded before packing the item
+
+        Function to reset the position and orientation of the item based on the provided transform argument[target_euler,target_pos]. It updates the environment attributes (env.unpacked and env.packed) accordingly.
+        '''
+
+        # Extract the target position and orientation from the transform argument
+        target_pos = transform[3:6]
+        # Check collision with box margins 
+        limits_object = self.compute_object_limits(target_pos, offsets)
+        # Show the bounding box of the object to check collisions visullay
+        limits_obj_line_ids = self.draw_predicted_pose_volume(limits_object)
+        collision, height_exceeded_before_pack = self.bounding_box_collision(self.bbox_box, limits_object)
+
+        return collision, limits_obj_line_ids, height_exceeded_before_pack
+
+
+
     def check_height_exceeded(self,box_heightmap, box_height):
         '''
         box_heightmap: heightmap of the box

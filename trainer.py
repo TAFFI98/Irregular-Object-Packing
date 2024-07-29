@@ -92,7 +92,7 @@ class Trainer(object):
         return  Q_values , selected_obj_pybullet, orients
     
     # Compute target Q_target
-    def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):
+    def get_Qtarget_value(self, Q_max, current_reward):
         '''
         prev_obj: previous objective function value
         current_obj: current objective function value
@@ -101,21 +101,21 @@ class Trainer(object):
         Q_target: target Q_value according to Bellman equation
         '''
         # Compute current reward 
-        print(f"{blue_light}\nComputing Reward fuction {reset}\n")
-        current_reward = env.Reward_function(prev_obj, current_obj)
+        #print(f"{blue_light}\nComputing Reward fuction {reset}\n")
+        #current_reward = env.Reward_function(prev_obj, current_obj)
 
         # Compute expected reward:
         future_reward = Q_max
 
-        print('Current reward: %f' % (current_reward))
-        print('Future reward: %f' % (future_reward))
+        #print('Current reward: %f' % (current_reward))
+        #print('Future reward: %f' % (future_reward))
         Q_target = current_reward + self.future_reward_discount * future_reward
-        print('Expected reward: %f ' % (Q_target))
-        print('---------------------------------------')           
-        return current_reward, Q_target
+        #print('Expected reward: %f ' % (Q_target))
+        #print('---------------------------------------')           
+        return Q_target
 
     # Compute labels and backpropagate
-    def backprop(self, Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step):
+    def backprop(self, replay_buffer ,env):
             '''
             This function computes the gradients and backpropagates the loss across the networks
 
@@ -128,15 +128,39 @@ class Trainer(object):
             loss: loss value
             '''
             
+            # Extract a (random) bacth of experiences from the buffer 
+            # Note: Q_values contains Q_values[indices_rpy, pixel_x, pixel_y] of each experience
+            experiences_batch = replay_buffer.sample_batch()
 
+            Q_values_list = []
+            Q_targets_list = []
+
+            for experience in experiences_batch:
+
+                state, action, reward, new_state = experience
+
+                BoxHeightMap, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp = state
+                chosen_item_index, orients = action
+
+                #boxHM = torch.tensor(np.expand_dims(np.expand_dims(BoxHeightMap,axis=0), axis=0),requires_grad=True) # (batch, 1, resolution, resolution) -- box heightmap
+                Q_values = self.selection_placement_net.forward_new(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp, orients)
+                indices_rpy, pixel_x, pixel_y, Q_max = self.check_placement_validity_new(env, Q_values, orients, BoxHeightMap, chosen_item_index) 
+                Q_value = Q_values[indices_rpy, pixel_x, pixel_y]
+                Q_values_list.append(Q_value)
+                Q_target = self.get_Qtarget_value(Q_max, reward)
+                Q_targets_list.append(Q_target)
+
+            # Convert into tensor
+            Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
             if self.use_cuda:
-                Q_target_tensor = torch.tensor(Q_target).cuda().float()
-                Q_target_tensor = Q_target_tensor.expand_as(Q_values[indices_rpy, pixel_x, pixel_y])
+                Q_values_tensor = Q_values_tensor.cuda().float()
+                Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).cuda().float()
             else:
-                Q_target_tensor = torch.tensor(Q_target).float()
-                Q_target_tensor = Q_target_tensor.expand_as(Q_values[ indices_rpy, pixel_x, pixel_y])
-            
-            loss = self.criterion(Q_values[indices_rpy, pixel_x, pixel_y], Q_target_tensor)
+                Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).float()
+
+            Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+
+            loss = self.criterion(Q_values_tensor, Q_targets_tensor)
             loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
             print(f"{blue_light}\nComputing loss and gradients on network{reset}")
             print('Training loss: %f' % (loss))
@@ -168,7 +192,7 @@ class Trainer(object):
             #         plt.ylabel('Count')
             #         plt.show()
 
-            if optimizer_step == True:
+            if replay_buffer.get_buffer_length() >= replay_buffer.batch_size:
                 print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
                 self.optimizer_worker.step()
                 print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
@@ -383,8 +407,8 @@ class Trainer(object):
             transform = np.empty(6,)
             transform[0:3] = target_euler
             transform[3:6] = target_pos
-            print('----------------------------------------')
-            print(f'{yellow}Check packing validity for chosen item with index', chosen_item_index, 'with candidate pose n ',k+1,': \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
+            # print('----------------------------------------')
+            # print(f'{yellow}Check packing validity for chosen item with index', chosen_item_index, 'with candidate pose n ',k+1,': \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
             
             # Pack item
             BoxHeightMap, stability_of_packing, old_pos, old_quater, collision, limits_obj_line_ids, height_exceeded_before_pack = env.pack_item_check_collision(chosen_item_index , transform, offsets)
@@ -428,7 +452,33 @@ class Trainer(object):
         Q_max = Q_values[indices_rpy,pixel_x,pixel_y]
         return indices_rpy, pixel_x, pixel_y, False, 0 , packed, float(Q_max.cpu())
 
+    def check_placement_validity_new(self, env, Q_values, orients, BoxHeightMap, chosen_item_index):
+        # Assicurati che Q_values sia un tensor PyTorch e non un array NumPy
+        if isinstance(Q_values, torch.Tensor):
+            # Usa .detach() e .cpu() per evitare errori di autograd e conversione
+            Q_values = Q_values.detach().cpu().numpy()
         
+        # Trova l'indice del massimo valore nella matrice Q_values
+        # Verifica che Q_values sia effettivamente un array NumPy
+        assert isinstance(Q_values, np.ndarray), "Q_values deve essere un array NumPy"
+
+        # Usa argmax() senza il parametro 'axis' per ottenere l'indice piatto del massimo valore
+        max_value_index_flat = np.argmax(Q_values)
+
+        # Converte l'indice piatto in indici multidimensionali
+        max_value_index = np.unravel_index(max_value_index_flat, Q_values.shape)
+
+        # Estrazione degli indici corrispondenti al massimo valore
+        indices_rpy = max_value_index[0]  # Indice della combinazione rpy
+        pixel_x = max_value_index[1]  # Coordinata X del massimo valore
+        pixel_y = max_value_index[2]  # Coordinata y del massimo valore
+        
+        # Estrai anche il valore massimo stesso se necessario
+        Q_max = Q_values[max_value_index]
+
+        return indices_rpy, pixel_x, pixel_y, Q_max
+
+     
     
     def save_snapshot(self, max_snapshots=5):
         """
