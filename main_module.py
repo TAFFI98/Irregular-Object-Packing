@@ -398,23 +398,29 @@ def train(args):
             
             elif packed == True:                
                 # The first iteration does not compute the reward since there are no previous objective function
-                if kk>= 1:
+                if kk>= 1:                        
                         # Compute reward and Q-target value
                         print('Previous Objective function is: ', prev_obj)
                         print('---------------------------------------')           
-                        current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
-                        
-                        replay_buffer.add_experience(boxHM, [selected_obj, orients], current_reward, Q_target, Q_values[indices_rpy, pixel_x, pixel_y], NewBoxHeightMap)
+                        # Compute current reward 
+                        print(f"{blue_light}\nComputing Reward fuction {reset}\n")
+                        current_reward = env.Reward_function(prev_obj, current_obj)
 
+                        Q_target = trainer.get_Qtarget_value(Q_max, current_reward)
+                        
                         # Count the number of samples for the batch
-                        #sample_counter += 1
-                        #print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
+                        # sample_counter += 1
+                        # print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
+
+                        # Add the new experience to the replay buffer
+                        state =[heightmap_box, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp]
+                        new_state = NewBoxHeightMap
+                        replay_buffer.add_experience(state, [selected_obj, orients], current_reward, new_state, Q_target, Q_values[indices_rpy, pixel_x, pixel_y])
 
                         # Gradients computation and backpropagation step if the batch size is reached
                         # optimizer_step = True if sample_counter == batch_size else False
+                        loss_value = trainer.backprop(replay_buffer, env)
                         
-                        loss_value = trainer.backprop(replay_buffer)
-                    
                         # Update epochs samples counters and save snapshots
                         if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: #forse va messsa capacity del buffer e non batch size, ma non penso
                             epoch += 1                  
@@ -904,10 +910,10 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=5) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=5) # number of objects to consider for sorting
-    parser.add_argument('--resolution', dest='resolution', action='store', default=100) # resolution of the heightmaps
+    parser.add_argument('--k_max', action='store', default=3) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=3) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=3) # number of objects to consider for sorting
+    parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1806_epoch_73.pth') # path to the  network snapshot
     parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
@@ -917,13 +923,13 @@ if __name__ == '__main__':
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
 
     # to improve performance: PRIORITIZED EXPERIENCE REPLAY (PER)
-    parser.add_argument('--replay_buffer_capacity', action='store', default=15) #size of the experience replay buffer                      ##############DA DECIDERE
-    parser.add_argument('--replay_batch_size', action='store', default=5) #size of the batch ebstracted from experience replay buffer      ##############DA DECIDERE
-    parser.add_argument('--PER_alpha', action='store', default=5) #size of the batch ebstracted from experience replay buffer      ##############DA DECIDERE
-    parser.add_argument('--PER_beta', action='store', default=5) #size of the batch ebstracted from experience replay buffer      ##############DA DECIDERE
-    parser.add_argument('--PER_epsilon', action='store', default=5) #      ##############DA DECIDERE
-    parser.add_argument('--beta_increment_per_sampling', action='store', default=5) #      ##############DA DECIDERE
-
+    ##############DA DECIDERE
+    parser.add_argument('--replay_buffer_capacity', action='store', default=15) #size of the experience replay buffer                      
+    parser.add_argument('--replay_batch_size', action='store', default=5) #size of the batch ebstracted from experience replay buffer     
+    parser.add_argument('--PER_alpha', action='store', default=1) #Controls the degree of prioritization. A higher value means more emphasis on prioritizing experiences based on their importance.     
+    parser.add_argument('--PER_beta', action='store', default=1) #Manages the balance between prioritization and uniform sampling. It starts low and increases over time to adjust the focus between prioritized and uniform sampling.
+    parser.add_argument('--PER_epsilon', action='store', default=1) # Defines how priorities are computed from experience errors, affecting how priorities are scaled.  
+    parser.add_argument('--beta_increment_per_sampling', action='store', default=1) #Specifies how much β increases at each training step
     args = parser.parse_args()
     
     # --------------- Start Train --------------- 

@@ -30,32 +30,30 @@ class PrioritizedExpeReplayBuffer(object):
         self.buffer_capacity = capacity
         self.batch_size = batch_size
         self.buffer = []
-        self.surprises = []
+        self.priorities = []
         self.beta = PER_beta
         self.alpha = PER_alpha
         self.epsilon = PER_epsilon
         self.beta_increment_per_sampling = beta_increment_per_sampling
 
-    def add_experience(self, state, action, reward, Q_target, Q_value, next_state):
+    def add_experience(self, state, action, reward, next_state, Q_target, Q_value):
+        Q_value = Q_value.item()    # "Extracts the scalar value from the tensor."
+        error = abs(Q_target - Q_value)
+        priority = (error + self.epsilon) ** self.alpha
+        # surprise = Q_value - (1 - reward)
 
-        Q_targets_tensor = torch.tensor(Q_target, requires_grad=True).float()
-        Q_targets_tensor = Q_targets_tensor.expand_as(Q_value)
-        Q_target = Q_target.item()  # Estrae il valore scalare dal tensore
-        Q_value = Q_value.item()    # Estrae il valore scalare dal tensore
+        experience = (state, action, reward, next_state)
 
-        surprise = Q_value - (1 - reward)
-        experience = (state, action, reward, Q_target, Q_value, next_state)
         if len(self.buffer) >= self.buffer_capacity:
             self.buffer.pop(0)
-            self.surprises.pop(0)
+            self.priorities.pop(0)
         self.buffer.append(experience)
-        self.surprises.append(surprise)
+        self.priorities.append(priority)
 
-    def sample_batch(self):
-        # Assumiamo che self.surprises contenga i valori di sorpresa per ogni esperienza nella memoria
+    def sample_batchOLD(self):
         surprises = np.array(self.surprises)
         
-        # Normalizza i valori di sorpresa per ottenere probabilità
+        # from priorities obtains probabilities
         max_surprise = np.max(surprises)
         normalized_surprises = surprises / max_surprise
         probabilities = normalized_surprises / np.sum(normalized_surprises)
@@ -64,25 +62,49 @@ class PrioritizedExpeReplayBuffer(object):
         indices = np.random.choice(len(self.buffer), self.batch_size, p=probabilities)
         batch = [self.buffer[i] for i in indices]
 
+        #states, actions, rewards, next_states = zip(*batch)
+        # Estrai stati, azioni, ricompense e nuovi stati
         states = []
         actions = []
         rewards = []
         next_states = []
-        Q_targets = []
-        Q_values = []
         for experience in batch:
-            state, action, reward, Q_target, Q_value, next_state = experience
+            state, action, reward, next_state = experience
             states.append(state)
             actions.append(action)
             rewards.append(reward)
             next_states.append(next_state)
-            Q_targets.append(Q_target)
-            Q_values.append(Q_value)
 
-        return states, actions, rewards, Q_targets, Q_values, next_states
+        return batch
+    
+    def sample_batch(self):
+        # Compute sampling probabilities
+        priorities = np.array(self.priorities[:len(self.buffer)])  
+        probabilities = priorities ** self.alpha
+        probabilities /= probabilities.sum()
+
+        # Sample batch
+        indices = np.random.choice(len(self.buffer), self.batch_size, p=probabilities)
+        batch = [self.buffer[i] for i in indices]
+        
+        # Compute importance-sampling weights
+        total = len(self.buffer)
+        weights = (total * probabilities[indices]) ** (-self.beta)
+        weights /= weights.max()
+        weights = np.array(weights, dtype=np.float32)
+        
+        # Update beta
+        self.beta = np.min([1., self.beta + self.beta_increment_per_sampling])
+        
+        return batch, indices, weights
    
     def get_buffer_length(self):
         return len(self.buffer)
+    
+    def update_priorities(self, indices, errors):
+        for idx, error in zip(indices, errors):
+            self.priorities[idx] = (abs(error) + self.epsilon) ** self.alpha
+
 
 """
     def __init__(self, capacity, batch_size, PER_alpha, PER_beta, beta_increment_per_sampling, PER_epsilon):

@@ -65,6 +65,21 @@ class selection_placement_net(nn.Module):
         Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
         return Q_values, selected_obj, orients
     
+    def forward_new(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp, orients):
+        # Compute score values using the selection network
+        score_values = self.selection_net(input1_selection_HM_6views, boxHM, input2_selection_ids)
+        # Apply Gumbel-Softmax to the score values
+        alpha = 900
+        attention_weights = torch.softmax(alpha * score_values,dim =1)
+        while torch.max(attention_weights).item() == 1:
+            alpha = alpha - 100
+            attention_weights = torch.softmax(alpha * score_values, dim =1)
+
+        # Compute Q-values using the placement network
+        Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
+        Q_values = self.placement_net.forward_new(input2_placement_HM_rp, boxHM, attention_weights, orients)
+        return Q_values
+    
 class selection_net(nn.Module):
     def __init__(self, use_cuda, K, method): 
         super(selection_net, self).__init__()
@@ -281,6 +296,26 @@ class placement_net(nn.Module):
         unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orients, input2 ) # torch.Size([n_rp*n_y, res, res, 3])
         Q_values = self.unet_forward(unet_input) # torch.Size([n_rp*n_y, res, res])
         return Q_values, selected_obj, orients
+    
+    def forward_new(self, input1, input2, attention_weights, orients):
+        if self.use_cuda:
+            input1 = input1.cuda()
+            input2 = input2.cuda()
+
+        batch_size = input1.size(0)
+        self.n_rp = input1.size(2)
+        K = input1.size(1)
+        # Reshape input2 to match the batch size of input1
+        input2 = input2.permute(0, 2, 3, 1).expand(batch_size, -1, -1, -1)
+        # Reshape the attention weights to match the dimensions of the tensor
+        weighted_input = input1 * attention_weights.view(1, K, 1, 1, 1, 1)
+        selected_tensor = weighted_input.sum(dim=1, keepdim=True)
+
+        # Concatenate along the last dimension
+        input1_rp = selected_tensor.squeeze(1).unsqueeze(2).expand(-1, -1, self.n_y, -1, -1, -1) # torch.Size([1, n_rp, n_y, res, res, 2])
+        unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orients, input2 ) # torch.Size([n_rp*n_y, res, res, 3])
+        Q_values = self.unet_forward(unet_input) # torch.Size([n_rp*n_y, res, res])
+        return Q_values
 
     def unet_forward(self, x):
         ''' Reshape input '''
