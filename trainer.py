@@ -21,9 +21,10 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import gc
+import random
 
 class Trainer(object):
-    def __init__(self, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
+    def __init__(self, epsilon, epsilon_min, epsilon_decay, method= 'stage_1', future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
         
         self.n_y = n_y           # number of discrete yaw orientations
         self.method = method     # stage_1 or stage_2
@@ -33,6 +34,11 @@ class Trainer(object):
         self.lr = 1e-3           # learning rate 1e-3 for stage 1 and 1e-4 for stage 2
         self.weight_decay = 2e-5 # weight decay
 
+        self.epsilon = epsilon              # Valore iniziale per epsilon
+        # per ora non usati, 
+        self.epsilon_min = epsilon_min      # Valore minimo per epsilon
+        self.epsilon_decay = epsilon_decay  # Fattore di decrescita per epsilon
+    
         # Check if CUDA can be used
         if torch.cuda.is_available() and not force_cpu:
             print(f"{bold}CUDA detected. Running with GPU acceleration.{reset}")
@@ -311,7 +317,28 @@ class Trainer(object):
             cv2.imwrite(path + f'Q_values_episode_{self.episode}_epoch_{self.epoch}.png', canvas)
 
         return canvas
-        
+    """
+    PRIMA VERSIONE, PENSO NON CORRETTA    
+    def ebstract_max(self, Q_values):
+        # Flatten the Q_values tensor and sort it in descending order
+        Q_values_flat = Q_values.view(-1)
+        Q_size = Q_values.size()
+
+        index = torch.unravel_index(0, Q_size)
+
+        indices_rpy = int(index[0])
+        pixel_x = int(index[1])
+        pixel_y = int(index[2])
+
+        Q_max = Q_values[indices_rpy,pixel_x,pixel_y]
+        return float(Q_max.cpu())
+    """
+    def ebstract_max(self, Q_values):
+      Q_max = torch.max(Q_values)  # Trova il massimo valore nel tensore Q_values
+      return float(Q_max.cpu()) 
+
+    """
+    CODICE ORIGINALE (penso non buon trade-off tra exploration e exploitation)
     # Check if the predicted pose is allowed: Collision with box margins and exceeded height of the box
     def check_placement_validity(self, env, Q_values, orients, BoxHeightMap, chosen_item_index):
         '''
@@ -427,9 +454,147 @@ class Trainer(object):
         packed = False
         Q_max = Q_values[indices_rpy,pixel_x,pixel_y]
         return indices_rpy, pixel_x, pixel_y, False, 0 , packed, float(Q_max.cpu())
+    """
 
+    # NUOVO CODICE CON AGGIUNTA METODO EPSILON-GREEDY
+    # Check if the predicted pose is allowed: Collision with box margins and exceeded height of the box
+    def check_placement_validity(self, env, Q_values, orients, BoxHeightMap, chosen_item_index):
+        '''
+        env: environment object
+        Q_values: predicted Q_values #[batch, n_y, n_rp, res, res]
+        orients: numpy array of shape (n_rp*n_y, 3) - roll pitch yaw angles
+        BoxHeightMap: heightmap of the box
+        chosen_item_index: index of the object to be packed
+
+        output:
+        indices_rpy: index of the selected orientation
+        pixel_x: x coordinate of the selected pixel
+        pixel_y: y coordinate of the selected pixel
+        BoxHeightMap: updated heightmap of the box
+        stability_of_packing: stability of the packed object
+        packed: boolean indicating if the object was packed
+        Q_max: maximum Q_value
+
+        This function tries to pack the chosen item with the predicted pose and checks if the placement is valid 
+        (no collision with box margins and box height not exceeded).
+        '''
+        # Flatten the Q_values tensor
+        Q_values_flat = Q_values.view(-1)
+        Q_size = Q_values.size()
+
+
+        """
+        # Epsilon-greedy choice
+        if random.random() < self.epsilon:
+            # Exploration: choose a random index
+            i = random.randint(0, Q_values_flat.size(0) - 1)
+        else:
+            # Exploitation: choose the index with the maximum Q-value
+            _, i = torch.max(Q_values_flat, 0)
+            i = i.item()  # Convert tensor to scalar integer
+        index = torch.unravel_index(i, Q_size)
         
-    
+
+        # Epsilon-greedy choice
+        if random.random() < self.epsilon:
+            # Exploration: choose a random index
+            random_index = random.randint(0, Q_values_flat.size(0) - 1)
+            selected_index = torch.unravel_index(random_index, Q_size)
+        else:
+            # Exploitation: choose the index with the maximum Q-value
+            max_index = torch.argmax(Q_values_flat)
+            selected_index = torch.unravel_index(max_index, Q_size) 
+        index = selected_index        
+        """
+
+        if torch.rand(1).item() < self.epsilon:
+          # Exploration: select a random index
+          random_index = torch.randint(0, Q_values_flat.size(0), (1,)).item()
+        else:
+          # Exploitation: select the index with the maximum Q value
+          _, random_index = torch.max(Q_values_flat, 0)
+
+        # Unravel the index to get the 3D coordinates
+        index_tensor = torch.tensor(random_index)
+        index = torch.unravel_index(index_tensor, Q_size)
+        indices_rpy = int(index[0])
+        pixel_x = int(index[1])
+        pixel_y = int(index[2])
+
+        r = float(orients[indices_rpy, 0])
+        p = float(orients[indices_rpy, 1])
+        y = float(orients[indices_rpy, 2])
+
+        # Pack chosen item with predicted pose
+        target_euler = [r, p, y]
+        # Compute z coordinate
+        _, Hb_selected_obj, obj_length, obj_width, offsets = env.item_hm(chosen_item_index, target_euler)
+        offset_pointminz_COM = offsets[4]
+
+        z_lowest_point = env.get_z(BoxHeightMap, Hb_selected_obj, pixel_x, pixel_y, obj_length, obj_width)
+        del(Hb_selected_obj, BoxHeightMap)
+        gc.collect()
+        z = z_lowest_point + offset_pointminz_COM
+        target_pos = [pixel_x * env.box_size[0] / env.resolution, pixel_y * env.box_size[1] / env.resolution, z]  # m
+        transform = np.empty(6,)
+        transform[0:3] = target_euler
+        transform[3:6] = target_pos
+        print('----------------------------------------')
+        print(f'{yellow}Check packing validity for chosen item with index', chosen_item_index, 'with candidate pose n', 1, ': \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
+
+        # Pack item
+        BoxHeightMap, stability_of_packing, old_pos, old_quater, collision, limits_obj_line_ids, height_exceeded_before_pack = env.pack_item_check_collision(chosen_item_index, transform, offsets)
+
+        # Use the collision result
+        if collision:
+            print(f'{red_light}Collision detected!{reset}')
+            # Place the object back to its original position since this predicted pose would not be valid
+            env.removeAABB(limits_obj_line_ids)
+            BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
+            packed = False
+            Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
+        elif height_exceeded_before_pack:
+            print(f'{red_light}Box height exceeded before packing action!{reset}')
+            # Place the object back to its original position since this predicted pose would not be valid
+            env.removeAABB(limits_obj_line_ids)
+            BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
+            packed = False
+            Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
+        else:
+            print(f'{green_light}No collision detected.{reset}')
+            # Check if the height of the box is exceeded
+            height_exceeded = env.check_height_exceeded(box_heightmap=BoxHeightMap, box_height=env.box_size[2])
+            if height_exceeded:
+                print(f'{red_light}Box height exceeded after packing action!{reset}')
+                # Place the object back to its original position since this predicted pose would not be valid
+                env.removeAABB(limits_obj_line_ids)
+                BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
+                packed = False
+                Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
+            else:
+                print(f'{green_light}Box height not exceeded.{reset}')
+                print('--------------------------------------')
+                print(f'{green}Packed item with id', chosen_item_index, f'successfully!{reset}')
+                print(f'{green}with pose: \n> orientation (r,p,y):', target_euler, '\n> pixel coordinates: [', pixel_x, ',', pixel_y, '] \n> position (m):', target_pos, f'{reset}')
+                print('--------------------------------------')
+                print(f'{purple_light}>Stability is:', stability_of_packing, f'{reset}')
+                env.removeAABB(limits_obj_line_ids)
+                packed = True
+                Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
+
+        return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed, float(Q_max.cpu())
+
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # DA SISTEMARE + NON ANCORA USATO NEL CODICE (per ora epsilon è una costante)
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    def update_epsilon(self):
+        '''
+        Aggiorna il valore di epsilon per l'epsilon decay.
+        '''
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+        self.epsilon = max(self.epsilon, self.epsilon_min)
+        
     def save_snapshot(self, max_snapshots=5):
         """
         Save snapshots of the trained models.

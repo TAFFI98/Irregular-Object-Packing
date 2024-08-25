@@ -89,7 +89,7 @@ def train(args):
                         print('----------------------------------------')
                         print('----------------------------------------')
                 # Initialize trainer
-                trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                trainer = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
         else:
@@ -396,8 +396,43 @@ def train(args):
                 if kk>= 1:
                         # Compute reward and Q-target value
                         print('Previous Objective function is: ', prev_obj)
-                        print('---------------------------------------')           
-                        current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
+                        print('---------------------------------------') 
+
+
+
+                        # NUOVO CODICE PER OTTENERE max Q(new_state)
+                        # copia delle variabili per non creare confusione
+                        views_FUTURE = np.copy(views)                  # Copia della variabile views per lo stato futuro
+                        heightmaps_rp_FUTURE = np.copy(heightmaps_rp)  # Copia della variabile heightmaps_rp per lo stato futuro
+
+                        # Computing the inputs for the network as tensors:
+
+                        input1_selection_HM_6views_FUTURE = torch.tensor(np.expand_dims(views_FUTURE[0:k_sort], axis=0))   # CHECK VIEVWS  
+                        
+                        boxHM_FUTURE = torch.tensor(np.expand_dims(np.expand_dims(NewBoxHeightMap,axis=0), axis=0),requires_grad=True)          # (batch, 1, resolution, resolution) -- box heightmap
+                        # modo 2:
+                        # heightmap_box = env.box_heightmap()
+                        # boxHM_FUTURE = torch.tensor(np.expand_dims(np.expand_dims(heightmap_box,axis=0), axis=0),requires_grad=True)          # (batch, 1, resolution, resolution) -- box heightmap
+                        
+                        _, bbox_order_FUTURE = env.order_by_bbox_volume(env.unpacked) #CHECK UNPACKED
+                        input2_selection_ids_FUTURE = torch.tensor([float(item) for item in bbox_order_FUTURE[0:k_sort]] ,requires_grad=True)        # (k_sort) -- list of loaded ids
+                        
+                        input1_placement_rp_angles_FUTURE = torch.tensor(np.asarray(roll_pitch_angles),requires_grad=True)      #CHECK ROLL_PITCH_ANGLES 
+                        
+                        # If the remaining objects are less than k_sort, fill the input tensors with zeros
+                        if len(bbox_order_FUTURE) < k_sort:
+                          for j in range(k_sort-len(bbox_order_FUTURE)):
+                            views_FUTURE = np.concatenate((views_FUTURE, np.zeros((1,views_FUTURE.shape[1],resolution,resolution))), axis=0)
+                            heightmaps_rp_FUTURE = np.concatenate((heightmaps_rp_FUTURE, np.zeros((1,heightmaps_rp_FUTURE.shape[1],resolution,resolution,heightmaps_rp_FUTURE.shape[-1]))), axis=0)
+                        input2_placement_HM_rp_FUTURE = torch.tensor(np.expand_dims(heightmaps_rp_FUTURE[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+
+                        Q_values_FUTURE, selected_obj_FUTURE, orients_FUTURE = trainer.forward_network( input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+                        Q_max_FUTURE = trainer.ebstract_max(Q_values_FUTURE)
+                        # FINE NUOVO CODICE
+                        
+
+
+                        current_reward, Q_target = trainer.get_Qtarget_value(Q_max_FUTURE, prev_obj, current_obj, env)
                         
                         # Count the number of samples for the batch
                         sample_counter += 1
@@ -432,7 +467,12 @@ def train(args):
 
         del(env)
         gc.collect()
+
+        # AGGIORNO VALORE DI EPSILON ALLA FINE DI OGNI EPISODIO
+        # trainer.update_epsilon()
+
         print(f'{red}END OF CURRENT EPISODE: ', episode, f'{reset}')
+
 
     print('End of training')
 
@@ -891,25 +931,31 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
-    parser.add_argument('--obj_folder_path',  action='store', default='/Project/Irregular-Object-Packing/objects/hard_setting/') # path to the folder containing the objects .csv file
+    parser.add_argument('--obj_folder_path',  action='store', default='objects/easy_setting/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
-    parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=50) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=50) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=20) # number of objects to consider for sorting
-    parser.add_argument('--resolution', dest='resolution', action='store', default=200) # resolution of the heightmaps
+    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
+    parser.add_argument('--k_max', action='store', default=10) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=10) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=10) # number of objects to consider for sorting
+    parser.add_argument('--resolution', dest='resolution', action='store', default=100) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1788_epoch_215.pth') # path to the  network snapshot
     parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
-    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=True) # Load snapshot 
-    parser.add_argument('--batch_size', dest='batch_size', action='store', default=128) # Batch size for training
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
+    parser.add_argument('--batch_size', dest='batch_size', action='store', default=30) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
+    
+    # epsilon-greedy parameters: 
+    parser.add_argument('--epsilon', action='store', default=0.5)          # Valore iniziale per epsilon
+    parser.add_argument('--epsilon_min', action='store', default=0.05)     # Valore minimo per epsilon
+    parser.add_argument('--epsilon_decay', action='store', default=0.01)   # Fattore di decrescita per epsilon
+
     args = parser.parse_args()
     
     # --------------- Start Train --------------- 153 epochs stage 1 
-    #train(args) 
+    train(args) 
      # --------------- Start Test ---------------   NOT ready yet
-    test(args)
+    #test(args)
 
