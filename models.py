@@ -4,7 +4,7 @@ Created on  Apr 3 2024
 
 @author: Taffi
 """
-from torchview import draw_graph
+# from torchview import draw_graph
 import pybullet as p
 import numpy as np
 import torch

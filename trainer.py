@@ -195,8 +195,120 @@ class Trainer(object):
                 torch.cuda.empty_cache()
 
             return loss
-    
-    def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images = 4):
+    """
+    def save_and_plot_loss(self, epoch_number, loss, folder, max_images=4):
+        '''
+        epoch_number: current epoch number
+        loss: current loss value
+        folder: folder to save the plots
+        max_images: maximum number of images to save
+        This function updates the loss values, saves them, and plots them
+        '''
+        # Ensure the folder exists
+        os.makedirs(folder, exist_ok=True)
+
+        # File paths for epoch and loss data
+        data_file = os.path.join(folder, 'loss_data.pkl')
+
+        # Load existing data if available
+        if os.path.exists(data_file):
+            with open(data_file, 'rb') as f:
+                list_epochs_for_plot, losses = pickle.load(f)
+        else:
+            list_epochs_for_plot = []
+            losses = []
+
+        # Append new values to the lists
+        list_epochs_for_plot.append(epoch_number)
+        losses.append(loss)
+
+        # Save the updated lists to a file
+        with open(data_file, 'wb') as f:
+            pickle.dump((list_epochs_for_plot, losses), f)
+
+        # Plot the data
+        plt.figure()
+        plt.plot(list_epochs_for_plot, losses, label='Loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.grid(True)
+        plt.legend()
+
+        # Save the plot to a file
+        plot_file = os.path.join(folder, f'loss_epoch_{epoch_number}.png')
+        plt.savefig(plot_file)
+        plt.close()
+
+        # Get a list of all files in the directory
+        files = glob.glob(os.path.join(folder, '*'))
+
+        # If there are more than max_images files
+        if len(files) > max_images:
+            # Sort the files by modification time
+            files.sort(key=os.path.getmtime)
+
+            # Remove the oldest files
+            for file in files[:len(files) - max_images]:
+                os.remove(file)
+
+    def save_and_plot_reward(self, epoch_number, reward, folder, max_images=4):
+        '''
+        epoch_number: current epoch number
+        reward: current reward value
+        folder: folder to save the plots
+        max_images: maximum number of images to save
+        This function updates the reward values, saves them, and plots them
+        '''
+        # Ensure the folder exists
+        os.makedirs(folder, exist_ok=True)
+
+        # File paths for epoch and reward data
+        data_file = os.path.join(folder, 'reward_data.pkl')
+
+        # Load existing data if available
+        if os.path.exists(data_file):
+            with open(data_file, 'rb') as f:
+                list_epochs_for_plot, rewards = pickle.load(f)
+        else:
+            list_epochs_for_plot = []
+            rewards = []
+
+        # Append new values to the lists
+        list_epochs_for_plot.append(epoch_number)
+        rewards.append(reward)
+
+        # Save the updated lists to a file
+        with open(data_file, 'wb') as f:
+            pickle.dump((list_epochs_for_plot, rewards), f)
+
+        # Plot the data
+        plt.figure()
+        plt.plot(list_epochs_for_plot, rewards, label='Reward')
+        plt.xlabel('Epochs')
+        plt.ylabel('Reward')
+        plt.grid(True)
+        plt.legend()
+
+        # Save the plot to a file
+        plot_file = os.path.join(folder, f'reward_epoch_{epoch_number}.png')
+        plt.savefig(plot_file)
+        plt.close()
+
+        # Get a list of all files in the directory
+        files = glob.glob(os.path.join(folder, '*'))
+
+        # If there are more than max_images files
+        if len(files) > max_images:
+            # Sort the files by modification time
+            files.sort(key=os.path.getmtime)
+
+            # Remove the oldest files
+            for file in files[:len(files) - max_images]:
+                os.remove(file)
+    """
+
+
+    def save_and_plot_loss(self, list_epochs_for_plot, losses, folder, max_images=4):
         '''
         list_epochs_for_plot: list of epochs
         losses: list of losses
@@ -207,11 +319,9 @@ class Trainer(object):
         # Ensure the folder exists
         os.makedirs(folder, exist_ok=True)
 
-        # Get the number of epochs
-        num_epochs = int(list_epochs_for_plot[-1])
-
         # Save the lists to a file
-        with open(os.path.join(folder, f'loss_epoch_{num_epochs}.pkl'), 'wb') as f:
+        num_epochs = int(list_epochs_for_plot[-1])
+        with open(os.path.join(folder, f'loss.pkl'), 'wb') as f:
             pickle.dump((list_epochs_for_plot, losses), f)
 
         # Plot the data
@@ -221,22 +331,23 @@ class Trainer(object):
         plt.ylabel('Loss')
         plt.grid(True)
 
-        # Save the plot to a file
-        plt.savefig(os.path.join(folder, f'loss_epoch_{num_epochs}.png'))
+        # Save the plot to a file with a fixed name
+        plt.savefig(os.path.join(folder, 'loss.png'))
         plt.close()
+
         # Get a list of all files in the directory
-        files = glob.glob(os.path.join(folder, '*'))
+        files = glob.glob(os.path.join(folder, 'loss_*.png'))
 
-        # If there are more than 5 files
+        # If there are more than max_images files
         if len(files) > max_images:
-                # Sort the files by modification time
-                files.sort(key=os.path.getmtime)
+            # Sort the files by modification time
+            files.sort(key=os.path.getmtime)
 
-                # Remove the oldest file
-                os.remove(files[0])
-                os.remove(files[1])
+            # Remove the oldest files
+            for file in files[:len(files) - max_images]:
+                os.remove(file)
 
-    def save_and_plot_reward(self, list_epochs_for_plot, rewards, folder, max_images = 4):
+    def save_and_plot_reward(self, list_epochs_for_plot, rewards, folder, max_images=4):
         '''
         list_epochs_for_plot: list of epochs
         rewards: list of rewards
@@ -247,11 +358,9 @@ class Trainer(object):
         # Ensure the folder exists
         os.makedirs(folder, exist_ok=True)
 
-        # Get the number of epochs
-        num_epochs = int(list_epochs_for_plot[-1])
-
         # Save the lists to a file
-        with open(os.path.join(folder, f'reward_epoch_{num_epochs}.pkl'), 'wb') as f:
+        num_epochs = int(list_epochs_for_plot[-1])
+        with open(os.path.join(folder, f'reward.pkl'), 'wb') as f:
             pickle.dump((list_epochs_for_plot, rewards), f)
 
         # Plot the data
@@ -261,20 +370,22 @@ class Trainer(object):
         plt.ylabel('Reward')
         plt.grid(True)
 
-        # Save the plot to a file
-        plt.savefig(os.path.join(folder, f'reward_epoch_{num_epochs}.png'))
+        # Save the plot to a file with a fixed name
+        plt.savefig(os.path.join(folder, 'reward.png'))
         plt.close()
-        # Get a list of all files in the directory
-        files = glob.glob(os.path.join(folder, '*'))
 
-        # If there are more than 5 files
+        # Get a list of all reward plot files in the directory
+        files = glob.glob(os.path.join(folder, 'reward_*.png'))
+
+        # If there are more than max_images files
         if len(files) > max_images:
-                # Sort the files by modification time
-                files.sort(key=os.path.getmtime)
+            # Sort the files by modification time
+            files.sort(key=os.path.getmtime)
 
-                # Remove the oldest file
-                os.remove(files[0])
-                os.remove(files[1])
+            # Remove the oldest files
+            for file in files[:len(files) - max_images]:
+                os.remove(file)
+
 
     # Visualize the predictions of the worker network: Q_values
     def visualize_Q_values(self, Q_values, show = True, save = False, path = 'snapshots/Q_values/'):
@@ -589,14 +700,31 @@ class Trainer(object):
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # DA SISTEMARE + NON ANCORA USATO NEL CODICE (per ora epsilon è una costante)
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    def update_epsilon(self):
+    def update_epsilon_linear(self):
         '''
         Aggiorna il valore di epsilon per l'epsilon decay.
         '''
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-        self.epsilon = max(self.epsilon, self.epsilon_min)
-        
+        eps = self.epsilon - self.epsilon_decay
+        self.epsilon = max(eps, self.epsilon_min)
+        print(f'{blue_light}Nuovo valore di epsilon: {self.epsilon}{reset}')
+
+    def update_epsilon_exponential(self):
+        '''
+        Aggiorna il valore di epsilon per l'epsilon decay.
+        '''
+        eps = self.epsilon * self.epsilon_decay
+        self.epsilon = max(eps, self.epsilon_min)
+        print(f'{blue_light}Nuovo valore di epsilon: {self.epsilon}{reset}')
+
+    def update_epsilon_inverse(self):
+        '''
+        Aggiorna il valore di epsilon per l'epsilon decay.
+        '''
+        t = self.episode + 1 #                                          NON SICURA CHE SIA CORRETTO IL CONETGGIO 
+        eps = self.epsilon_min / ( 1 + self.epsilon_decay ** t)
+        self.epsilon = max(eps, self.epsilon_min)
+        print(f'{blue_light}Nuovo valore di epsilon: {self.epsilon}{reset}')    
+
     def save_snapshot(self, max_snapshots=5):
         """
         Save snapshots of the trained models.
