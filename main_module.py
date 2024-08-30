@@ -88,10 +88,19 @@ def train(args):
                         print(f"{purple}Starting from scratch --> EPISODE: ", episode,f"{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
-                # Initialize trainer
+                # Initialize trainer (POLICY NET)
                 trainer = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
+                print(f"{bold}\nCreo Policy Network{reset}\n") 
+                # DEFINISCO TARGET NETWORK PER IL CALCOLO DI Q-target
+                target_net = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                            load_snapshot = load_snapshot_, file_snapshot = snap,
+                            K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
+                target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
+                print(f"{bold}\nCreo Target Network{reset}\n")               
+
+                # target_net.load_state_dict(trainer.state_dict())
         else:
                 # Not the first time the main loop is executed
                 episode = episode + 1
@@ -426,8 +435,8 @@ def train(args):
                             heightmaps_rp_FUTURE = np.concatenate((heightmaps_rp_FUTURE, np.zeros((1,heightmaps_rp_FUTURE.shape[1],resolution,resolution,heightmaps_rp_FUTURE.shape[-1]))), axis=0)
                         input2_placement_HM_rp_FUTURE = torch.tensor(np.expand_dims(heightmaps_rp_FUTURE[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
 
-                        Q_values_FUTURE, selected_obj_FUTURE, orients_FUTURE = trainer.forward_network( input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
-                        Q_max_FUTURE = trainer.ebstract_max(Q_values_FUTURE)
+                        Q_values_FUTURE, selected_obj_FUTURE, orients_FUTURE = target_net.forward_network( input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+                        Q_max_FUTURE = target_net.ebstract_max(Q_values_FUTURE)
                         # FINE NUOVO CODICE
                         
 
@@ -457,6 +466,12 @@ def train(args):
                             # save snapshots and remove old ones if more than max_snapshots
                             snapshot = trainer.save_snapshot(max_snapshots=5) 
 
+                            # AGGIORNO TARGET NET
+                            if epoch % args.targetNN_freq == 0:
+                                target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
+                                print(f"{blue_light}\nAggiorno Target Network {reset}\n")
+                                # target_net.load_state_dict(trainer.state_dict())
+
             
             # Updating the box heightmap and the objective function
             prev_obj = current_obj
@@ -468,11 +483,8 @@ def train(args):
         del(env)
         gc.collect()
 
-        # AGGIORNO VALORE DI EPSILON ALLA FINE DI OGNI EPISODIO
-        # trainer.update_epsilon()
-
-        print(f'{red}END OF CURRENT EPISODE: ', episode, f'{reset}')
-
+        # AGGIORNO VALORE DI EPSILON ALLA FINE DI OGNI EPISODIO --> trainer.update_epsilon()
+        trainer.update_epsilon_exponential()
 
     print('End of training')
 
@@ -938,7 +950,7 @@ if __name__ == '__main__':
     parser.add_argument('--k_max', action='store', default=10) # max number of objects to load
     parser.add_argument('--k_min', action='store', default=10) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=10) # number of objects to consider for sorting
-    parser.add_argument('--resolution', dest='resolution', action='store', default=100) # resolution of the heightmaps
+    parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1788_epoch_215.pth') # path to the  network snapshot
     parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
@@ -948,9 +960,12 @@ if __name__ == '__main__':
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
     
     # epsilon-greedy parameters: 
-    parser.add_argument('--epsilon', action='store', default=0.5)          # Valore iniziale per epsilon
+    parser.add_argument('--epsilon', action='store', default=0.9)          # Valore iniziale per epsilon
     parser.add_argument('--epsilon_min', action='store', default=0.05)     # Valore minimo per epsilon
-    parser.add_argument('--epsilon_decay', action='store', default=0.01)   # Fattore di decrescita per epsilon
+    parser.add_argument('--epsilon_decay', action='store', default=0.995)   # Fattore di decrescita per epsilon
+
+    # frequenza di aggiornamento della target network
+    parser.add_argument('--targetNN_freq', action='store', default=10)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     args = parser.parse_args()
     
