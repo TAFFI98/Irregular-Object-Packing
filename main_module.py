@@ -97,10 +97,10 @@ def train(args):
                 target_net = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
-                target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
+                if load_snapshot_ == False:
+                    target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                 print(f"{bold}\nCreo Target Network{reset}\n")               
 
-                # target_net.load_state_dict(trainer.state_dict())
         else:
                 # Not the first time the main loop is executed
                 episode = episode + 1
@@ -850,7 +850,7 @@ def test(args):
             bbox_order = np.array([item for item in list(bbox_order) if item not in tried_obj])
 
             # Uncomment to plot Q-values
-            Qvisual = tester.visualize_Q_values(Q_values, show=False, save=True, path='snapshots/Q_values_test/')
+            Qvisual = tester.visualize_Q_values(Q_values, show=False, save=False, path='snapshots/Q_values_test/')
             
             print(f"{blue_light}\nChecking placement validity for the best 10 poses {reset}\n")
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = tester.check_placement_validity(env, Q_values, orients, heightmap_box, selected_obj)
