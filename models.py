@@ -4,7 +4,7 @@ Created on  Apr 3 2024
 
 @author: Taffi
 """
-from torchview import draw_graph
+# from torchview import draw_graph
 import pybullet as p
 import numpy as np
 import torch
@@ -63,7 +63,7 @@ class selection_placement_net(nn.Module):
 
         # Compute Q-values using the placement network
         Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
-        return Q_values, selected_obj, orients
+        return Q_values, selected_obj, orients, attention_weights
     
 class selection_net(nn.Module):
     def __init__(self, use_cuda, K, method): 
@@ -276,6 +276,56 @@ class placement_net(nn.Module):
         unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orients, input2 ) # torch.Size([n_rp*n_y, res, res, 3])
         Q_values = self.unet_forward(unet_input) # torch.Size([n_rp*n_y, res, res])
         return Q_values, selected_obj, orients
+
+    def get_Qvalues(self, roll_pitch_angles, input1, input2, selected_obj, orients):
+        """
+        Calcola i valori Q dati gli angoli di roll-pitch, le mappe di altezza degli oggetti,
+        la mappa di altezza della scatola e gli orientamenti, senza passare attraverso la rete di selezione.
+
+        Args:
+            roll_pitch_angles (torch.Tensor): Tensor di angoli di roll e pitch con dimensioni (n_rp, 2).
+            input1 (torch.Tensor): Tensor delle mappe di altezza degli oggetti con dimensioni (batch_size, K, n_rp, resolution, resolution, 2).
+            input2 (torch.Tensor): Tensor della mappa di altezza della scatola con dimensioni (batch_size, 1, resolution, resolution).
+            selected_obj (int): Indice dell'oggetto selezionato.
+            orients (torch.Tensor): Tensor degli orientamenti con dimensioni (n_rp * n_y, 3).
+
+        Returns:
+            torch.Tensor: I valori Q calcolati.
+        """
+
+        if self.use_cuda:
+            input1 = input1.cuda()
+            input2 = input2.cuda()
+
+        batch_size = input1.size(0)
+        self.n_rp = input1.size(2)
+        K = input1.size(1)
+        
+        # Seleziona il tensore dell'oggetto basato sull'indice selected_obj
+        selected_tensor = input1[:, selected_obj:selected_obj+1, :, :, :, :]
+
+        angles_yaw = torch.arange(0, 360, 360 / self.n_y).unsqueeze(0).to(input1.device)
+        
+        # Espandi e riscrivi angles_yaw
+        angles_yaw_expanded = angles_yaw.unsqueeze(0).expand(1, self.n_rp, self.n_y).reshape(-1, 1)
+
+        # Espandi e riscrivi roll_pitch_angles
+        roll_pitch_angles_expanded = roll_pitch_angles.unsqueeze(1).expand(-1, self.n_y, -1).reshape(-1, 2).to(input1.device)
+
+        # Concatenate along the last dimension to get orientations
+        orients = torch.cat((roll_pitch_angles_expanded, angles_yaw_expanded), dim=-1)
+
+        # Prepara input1_rp per la rete UNet
+        input1_rp = selected_tensor.squeeze(1).unsqueeze(2).expand(-1, -1, self.n_y, -1, -1, -1)
+        
+        # Ruota il tensore e aggiungi le informazioni sulla bounding box
+        unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orients, input2)
+
+        # Passa attraverso la rete UNet
+        Q_values = self.unet_forward(unet_input)
+
+        return Q_values
+
 
     def unet_forward(self, x):
         ''' Reshape input '''

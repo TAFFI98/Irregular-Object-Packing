@@ -10,6 +10,7 @@ import gc
 from trainer import Trainer
 from tester import Tester
 from env import Env
+from experience_replay import ExperienceReplayBuffer
 import torch
 '''
 The main_module.py file is the main script to run the training and testing of the packing problem.
@@ -21,14 +22,18 @@ def train(args):
 
     # Initialize snapshots
     snap = args.snapshot
+    snap_targetNN = args.snapshot_targetNet
     
     # Environment setup
     box_size = args.box_size
     resolution = args.resolution
-    list_epochs_for_plot, losses, rewards = [],[],[]
+    # list_epochs_for_plot, losses, rewards = [],[],[]
 
     # Batch size for training
-    batch_size = args.batch_size
+    # batch_size = args.batch_size
+    
+    # Initialize experience replay buffer 
+    replay_buffer = ExperienceReplayBuffer(args.replay_buffer_capacity, args.replay_batch_size)
 
     for new_episode in range(args.new_episodes):
         # Check if k_min is greater than 2
@@ -49,7 +54,7 @@ def train(args):
                         load_snapshot_ = True
                         episode = int(snap.split('_')[-3])
                         epoch = int(snap.split('_')[-1].strip('.pth'))
-                        sample_counter = 0
+                        # sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
@@ -59,7 +64,7 @@ def train(args):
                         load_snapshot_ = False
                         episode = 0
                         epoch = 0
-                        sample_counter = 0
+                        # sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE:", episode,f"{reset}")                
@@ -72,7 +77,7 @@ def train(args):
                         load_snapshot_ = True
                         episode = int(snap.split('_')[-3])
                         epoch = int(snap.split('_')[-1].strip('.pth'))
-                        sample_counter = 0                        
+                        # sample_counter = 0                        
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
@@ -82,16 +87,25 @@ def train(args):
                         load_snapshot_ = False
                         episode = 0
                         epoch = 0
-                        sample_counter = 0
+                        # sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
                         print(f"{purple}Starting from scratch --> EPISODE: ", episode,f"{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
-                # Initialize trainer
-                trainer = Trainer(method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                # Initialize trainer (POLICY NET)
+                trainer = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
+                print(f"{bold}\nCreo Policy Network{reset}\n") 
+                
+                # DEFINISCO TARGET NETWORK PER IL CALCOLO DI Q-target
+                target_net = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                            load_snapshot = load_snapshot_, file_snapshot = snap_targetNN,
+                            K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
+                target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
+                print(f"{bold}\nCreo Target Network{reset}\n")               
+
         else:
                 # Not the first time the main loop is executed
                 episode = episode + 1
@@ -354,7 +368,7 @@ def train(args):
 
             print(f"{blue_light}\nForward pass through the network: Predicting the next object to be packed and the Q values for every candidate pose {reset}\n")
             print('---------------------------------------')           
-            Q_values, selected_obj, orients = trainer.forward_network( input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+            Q_values, selected_obj, orients, attention_weights = trainer.forward_network( input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
             
             # Update tried objects and remove the selected object from the list of objects to be packed 
             tried_obj.append(selected_obj)
@@ -378,7 +392,7 @@ def train(args):
             bbox_order = np.array([item for item in list(bbox_order) if item not in tried_obj])
 
             # Uncomment to plot Q-values
-            Qvisual = trainer.visualize_Q_values(Q_values, show=False, save=True, path='snapshots/Q_values/')
+            Qvisual = trainer.visualize_Q_values(Q_values, show=False, save=False, path='snapshots/Q_values/')
             
             print(f"{blue_light}\nChecking placement validity for the best 10 poses {reset}\n")
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max = trainer.check_placement_validity(env, Q_values, orients, heightmap_box, selected_obj)
@@ -396,32 +410,112 @@ def train(args):
                 if kk>= 1:
                         # Compute reward and Q-target value
                         print('Previous Objective function is: ', prev_obj)
-                        print('---------------------------------------')           
-                        current_reward, Q_target = trainer.get_Qtarget_value(Q_max, prev_obj, current_obj, env)
+                        print('---------------------------------------') 
+
+                        # copia delle variabili per non creare confusione
+                        views_FUTURE = np.copy(views)                  # Copia della variabile views per lo stato futuro
+                        heightmaps_rp_FUTURE = np.copy(heightmaps_rp)  # Copia della variabile heightmaps_rp per lo stato futuro
+
+                        # Computing the inputs for the TARGET network as tensors:
+
+                        input1_selection_HM_6views_FUTURE = torch.tensor(np.expand_dims(views_FUTURE[0:k_sort], axis=0))   # CHECK VIEVWS  
                         
-                        # Count the number of samples for the batch
-                        sample_counter += 1
-                        print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
+                        boxHM_FUTURE = torch.tensor(np.expand_dims(np.expand_dims(NewBoxHeightMap,axis=0), axis=0),requires_grad=True)          # (batch, 1, resolution, resolution) -- box heightmap
+                        
+                        _, bbox_order_FUTURE = env.order_by_bbox_volume(env.unpacked) #CHECK UNPACKED
+                        input2_selection_ids_FUTURE = torch.tensor([float(item) for item in bbox_order_FUTURE[0:k_sort]] ,requires_grad=True)        # (k_sort) -- list of loaded ids
+                        
+                        input1_placement_rp_angles_FUTURE = torch.tensor(np.asarray(roll_pitch_angles),requires_grad=True)      #CHECK ROLL_PITCH_ANGLES 
+                        
+                        # If the remaining objects are less than k_sort, fill the input tensors with zeros
+                        if len(bbox_order_FUTURE) < k_sort:
+                          for j in range(k_sort-len(bbox_order_FUTURE)):
+                            views_FUTURE = np.concatenate((views_FUTURE, np.zeros((1,views_FUTURE.shape[1],resolution,resolution))), axis=0)
+                            heightmaps_rp_FUTURE = np.concatenate((heightmaps_rp_FUTURE, np.zeros((1,heightmaps_rp_FUTURE.shape[1],resolution,resolution,heightmaps_rp_FUTURE.shape[-1]))), axis=0)
+                        input2_placement_HM_rp_FUTURE = torch.tensor(np.expand_dims(heightmaps_rp_FUTURE[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles                        
+
+                        #COMPUTE THE CURRENT REWARD
+                        current_reward = env.Reward_function(prev_obj, current_obj)
+                       
+                        # Add the new experience to the replay buffer
+                        state = [heightmap_box, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp]
+                        action = [attention_weights, indices_rpy, pixel_x, pixel_y]
+                        new_state = [NewBoxHeightMap, input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE]
+                        replay_buffer.add_experience(state, action, current_reward, new_state)
+
 
                         # Gradients computation and backpropagation step if the batch size is reached
-                        optimizer_step = True if sample_counter == batch_size else False
-                        loss_value = trainer.backprop(Q_values, Q_target, indices_rpy, pixel_x, pixel_y, optimizer_step)
-                        
+                        # Extract a (random) bacth of experiences from the buffer 
+                        experiences_batch = replay_buffer.sample_batch()
+
+                        Q_values_list = []
+                        Q_targets_list = []
+
+                        for experience in experiences_batch:
+
+                            state, action, reward, new_state = experience
+                            
+                            att_weights, rpy, x, y = action
+                            print(f"indices_rpy: {rpy}, type: {type(rpy)}")
+                            print(f"pixel_x: {x}, type: {type(x)}")
+                            print(f"pixel_y: {y}, type: {type(y)}")
+                            print('FATTO1')
+                            BoxHeightMap, selection_HM_6views, box_HM, selection_ids, placement_rp_angles, placement_HM_rp = state
+                            Qvalues, a, b = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
+                            Qvalue = Qvalues[rpy, x, y]
+                            Q_values_list.append(Qvalue)
+                            print('FATTO2')
+                            NewBoxHeightmap, selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
+                            Qvalues_FUTURE, selected_obj_FUTURE, orients_FUTURE, attention_weights_FUTURE  = target_net.forward_network(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+                            Qmax_FUTURE = target_net.ebstract_max(Qvalues_FUTURE)    
+                            Qtarget = reward + trainer.future_reward_discount * Qmax_FUTURE
+                            Q_targets_list.append(Qtarget)
+                            print('FATTO3')
+
+
+                        #  Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
+                        #  forward( roll_pitch_angles, input1, input2,  attention_weights):
+    
+
+                        # Convert into tensor
+                        Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
+                        if trainer.use_cuda:
+                            Q_values_tensor = Q_values_tensor.cuda().float()
+                            Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).cuda().float()
+                        else:
+                            Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).float()
+
+                        Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+                        """
+                        if self.use_cuda:
+                            Q_targets_tensor = torch.tensor(Q_targets_list).cuda().float()
+                            Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+                        else:
+                            Q_targets_tensor = torch.tensor(Q_targets_list).float()
+                            Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+                        """
+
+                        replay_buffer_length = replay_buffer.get_buffer_length()
+
+                        loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size)
+
                         # Update epochs samples counters and save snapshots
-                        if optimizer_step == True:
+                        if replay_buffer_length >= replay_buffer.batch_size:
                             epoch += 1
-                            sample_counter = 0
+                            # sample_counter = 0
 
                             # save and plot losses and rewards
-                            list_epochs_for_plot.append(epoch)
-                            losses.append(loss_value.cpu().detach().numpy())
-                            rewards.append(current_reward)
-                            trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
-                            trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
+                            trainer.save_and_plot_loss(epoch, loss_value.cpu().detach().numpy(), 'snapshots/losses')
+                            trainer.save_and_plot_reward(epoch, current_reward, 'snapshots/rewards')
 
                             # save snapshots and remove old ones if more than max_snapshots
-                            snapshot = trainer.save_snapshot(max_snapshots=5) 
+                            snapshot = trainer.save_snapshot('trainer', max_snapshots=5) 
 
+                            # AGGIORNO TARGET NET
+                            if epoch % args.targetNN_freq == 0:
+                                target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
+                                snapshot_targetNet = trainer.save_snapshot('targetNet', max_snapshots=5) 
+                                print(f"{blue_light}\nAggiorno Target Network {reset}\n")
             
             # Updating the box heightmap and the objective function
             prev_obj = current_obj
@@ -432,8 +526,12 @@ def train(args):
 
         del(env)
         gc.collect()
-        print(f'{red}END OF CURRENT EPISODE: ', episode, f'{reset}')
 
+        # AGGIORNO VALORE DI EPSILON ALLA FINE DI OGNI EPISODIO --> trainer.update_epsilon()
+        trainer.update_epsilon_exponential()
+        print(f"{bold}{blue_light}\n Update epsilon{reset}\n")
+
+    snapshot_targetNet = trainer.save_snapshot('targetNet', max_snapshots=5) 
     print('End of training')
 
 def test(args):
@@ -891,25 +989,39 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='simple parser for training')
 
     # --------------- Setup options ---------------
-    parser.add_argument('--obj_folder_path',  action='store', default='/Project/Irregular-Object-Packing/objects/hard_setting/') # path to the folder containing the objects .csv file
+    parser.add_argument('--obj_folder_path',  action='store', default='objects/easy_setting/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
-    parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=50) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=50) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=20) # number of objects to consider for sorting
-    parser.add_argument('--resolution', dest='resolution', action='store', default=200) # resolution of the heightmaps
+    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
+    parser.add_argument('--k_max', action='store', default=5) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=5) # number of objects to consider for sorting
+    parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
-    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1788_epoch_215.pth') # path to the  network snapshot
-    parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
-    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=True) # Load snapshot 
-    parser.add_argument('--batch_size', dest='batch_size', action='store', default=128) # Batch size for training
+    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_39_epoch_7.pth') # path to the  network snapshot
+    parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/targetNet/network_episode_47_epoch_10.pth') # path to the target network snapshot
+    parser.add_argument('--new_episodes', action='store', default=40) # number of episodes
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
+    # parser.add_argument('--batch_size', dest='batch_size', action='store', default=70) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
+    
+    # epsilon-greedy parameters: 
+    parser.add_argument('--epsilon', action='store', default=0.9)          # Valore iniziale per epsilon
+    parser.add_argument('--epsilon_min', action='store', default=0.05)     # Valore minimo per epsilon
+    parser.add_argument('--epsilon_decay', action='store', default=0.995)   # Fattore di decrescita per epsilon
+
+    # frequenza di aggiornamento della target network
+    parser.add_argument('--targetNN_freq', action='store', default=12)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+
+    # experience replay
+    parser.add_argument('--replay_buffer_capacity', action='store', default=30) #size of the experience replay buffer 
+    parser.add_argument('--replay_batch_size', action='store', default=2) #size of the batch ebstracted from experience replay buffer
+
     args = parser.parse_args()
     
     # --------------- Start Train --------------- 153 epochs stage 1 
-    #train(args) 
+    train(args) 
      # --------------- Start Test ---------------   NOT ready yet
-    test(args)
+    #test(args)
 
