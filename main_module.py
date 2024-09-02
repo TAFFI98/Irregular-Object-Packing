@@ -30,7 +30,7 @@ def train(args):
     # list_epochs_for_plot, losses, rewards = [],[],[]
 
     # Batch size for training
-    # batch_size = args.batch_size
+    counter = 0
     
     # Initialize experience replay buffer 
     replay_buffer = ExperienceReplayBuffer(args.replay_buffer_capacity, args.replay_batch_size)
@@ -103,7 +103,8 @@ def train(args):
                 target_net = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap_targetNN,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
-                target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
+                if load_snapshot_ == False:
+                    target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                 print(f"{bold}\nCreo Target Network{reset}\n")               
 
         else:
@@ -407,11 +408,12 @@ def train(args):
             
             elif packed == True:                
                 # The first iteration does not compute the reward since there are no previous objective function
+                counter += 1
                 if kk>= 1:
                         # Compute reward and Q-target value
                         print('Previous Objective function is: ', prev_obj)
                         print('---------------------------------------') 
-
+                        
                         # copia delle variabili per non creare confusione
                         views_FUTURE = np.copy(views)                  # Copia della variabile views per lo stato futuro
                         heightmaps_rp_FUTURE = np.copy(heightmaps_rp)  # Copia della variabile heightmaps_rp per lo stato futuro
@@ -472,11 +474,6 @@ def train(args):
                             Q_targets_list.append(Qtarget)
                             print('FATTO3')
 
-
-                        #  Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
-                        #  forward( roll_pitch_angles, input1, input2,  attention_weights):
-    
-
                         # Convert into tensor
                         Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
                         if trainer.use_cuda:
@@ -486,32 +483,25 @@ def train(args):
                             Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).float()
 
                         Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
-                        """
-                        if self.use_cuda:
-                            Q_targets_tensor = torch.tensor(Q_targets_list).cuda().float()
-                            Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
-                        else:
-                            Q_targets_tensor = torch.tensor(Q_targets_list).float()
-                            Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
-                        """
 
                         replay_buffer_length = replay_buffer.get_buffer_length()
 
-                        loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size)
+                        loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size, counter)
 
                         # Update epochs samples counters and save snapshots
-                        if replay_buffer_length >= replay_buffer.batch_size:
+                        if replay_buffer_length >= replay_buffer.batch_size and counter % 10 == 0:
                             epoch += 1
-                            # sample_counter = 0
+                            counter = 0
 
                             # save and plot losses and rewards
                             trainer.save_and_plot_loss(epoch, loss_value.cpu().detach().numpy(), 'snapshots/losses')
                             trainer.save_and_plot_reward(epoch, current_reward, 'snapshots/rewards')
 
                             # save snapshots and remove old ones if more than max_snapshots
-                            snapshot = trainer.save_snapshot('trainer', max_snapshots=5) 
+                            if epoch % 5 == 0: 
+                              snapshot = trainer.save_snapshot('trainer', max_snapshots=5) 
 
-                            # AGGIORNO TARGET NET
+                            # AGGIORNO TARGET NET e salvo snapshot
                             if epoch % args.targetNN_freq == 0:
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                                 snapshot_targetNet = trainer.save_snapshot('targetNet', max_snapshots=5) 
@@ -531,6 +521,7 @@ def train(args):
         trainer.update_epsilon_exponential()
         print(f"{bold}{blue_light}\n Update epsilon{reset}\n")
 
+    snapshot = trainer.save_snapshot('trainer', max_snapshots=5) 
     snapshot_targetNet = trainer.save_snapshot('targetNet', max_snapshots=5) 
     print('End of training')
 
@@ -993,35 +984,35 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=5) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=5) # number of objects to consider for sorting
+    parser.add_argument('--k_max', action='store', default=30) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=30) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=30) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_39_epoch_7.pth') # path to the  network snapshot
     parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/targetNet/network_episode_47_epoch_10.pth') # path to the target network snapshot
-    parser.add_argument('--new_episodes', action='store', default=40) # number of episodes
+    parser.add_argument('--new_episodes', action='store', default=30) # number of episodes
     parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
     # parser.add_argument('--batch_size', dest='batch_size', action='store', default=70) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
     
     # epsilon-greedy parameters: 
-    parser.add_argument('--epsilon', action='store', default=0.9)          # Valore iniziale per epsilon
-    parser.add_argument('--epsilon_min', action='store', default=0.05)     # Valore minimo per epsilon
+    parser.add_argument('--epsilon', action='store', default=0.9)           # Valore iniziale per epsilon
+    parser.add_argument('--epsilon_min', action='store', default=0.05)      # Valore minimo per epsilon
     parser.add_argument('--epsilon_decay', action='store', default=0.995)   # Fattore di decrescita per epsilon
 
     # frequenza di aggiornamento della target network
     parser.add_argument('--targetNN_freq', action='store', default=12)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     # experience replay
-    parser.add_argument('--replay_buffer_capacity', action='store', default=30) #size of the experience replay buffer 
-    parser.add_argument('--replay_batch_size', action='store', default=2) #size of the batch ebstracted from experience replay buffer
+    parser.add_argument('--replay_buffer_capacity', action='store', default=300)  #size of the experience replay buffer 
+    parser.add_argument('--replay_batch_size', action='store', default=30)        #size of the batch ebstracted from experience replay buffer
 
     args = parser.parse_args()
     
-    # --------------- Start Train --------------- 153 epochs stage 1 
+    # --------------- Start Train --------------- 
     train(args) 
-     # --------------- Start Test ---------------   NOT ready yet
+     # --------------- Start Test ---------------   
     #test(args)
 

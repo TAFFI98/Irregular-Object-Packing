@@ -124,7 +124,7 @@ class Trainer(object):
         return current_reward, Q_target
 
     # Compute labels and backpropagate
-    def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size):            
+    def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter):            
         """ 
         PORTATO FUORI, PRIMA CHE FUNZIONE INVOCATA, COSI INPUT SOLO Q_target E Q_value
         # Extract a (random) bacth of experiences from the buffer 
@@ -194,7 +194,7 @@ class Trainer(object):
         #         plt.show()
 
         # if optimizer_step == True:
-        if replay_buffer_length >= replay_batch_size:
+        if replay_buffer_length >= replay_batch_size and counter % 10 ==0:
             print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
             self.optimizer_worker.step()
             print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
