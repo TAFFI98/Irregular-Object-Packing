@@ -505,7 +505,7 @@ def train(args):
                             if epoch % args.targetNN_freq == 0:
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                                 snapshot_targetNet = target_net.save_snapshot('targetNet', max_snapshots=5) 
-                                print(f"{blue_light}\nAggiorno Target Network {reset}\n")
+                                print(f"{re}{bold}\nAggiorno Target Network {reset}\n")
             
             # Updating the box heightmap and the objective function
             prev_obj = current_obj
