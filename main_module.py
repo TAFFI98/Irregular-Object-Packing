@@ -440,9 +440,9 @@ def train(args):
                         current_reward = env.Reward_function(prev_obj, current_obj)
                        
                         # Add the new experience to the replay buffer
-                        state = [heightmap_box, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp]
+                        state = [boxHM, input1_placement_rp_angles, input2_placement_HM_rp]
                         action = [attention_weights, indices_rpy, pixel_x, pixel_y]
-                        new_state = [NewBoxHeightMap, input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE]
+                        new_state = [input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE]
                         replay_buffer.add_experience(state, action, current_reward, new_state)
 
 
@@ -456,23 +456,23 @@ def train(args):
                         for experience in experiences_batch:
 
                             state, action, reward, new_state = experience
-                            
                             att_weights, rpy, x, y = action
-                            print(f"indices_rpy: {rpy}, type: {type(rpy)}")
-                            print(f"pixel_x: {x}, type: {type(x)}")
-                            print(f"pixel_y: {y}, type: {type(y)}")
-                            print('FATTO1')
-                            BoxHeightMap, selection_HM_6views, box_HM, selection_ids, placement_rp_angles, placement_HM_rp = state
+                            
+                            box_HM, placement_rp_angles, placement_HM_rp = state
                             Qvalues, a, b = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
                             Qvalue = Qvalues[rpy, x, y]
                             Q_values_list.append(Qvalue)
-                            print('FATTO2')
-                            NewBoxHeightmap, selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
+                            
+                            selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
                             Qvalues_FUTURE, selected_obj_FUTURE, orients_FUTURE, attention_weights_FUTURE  = target_net.forward_network(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
                             Qmax_FUTURE = target_net.ebstract_max(Qvalues_FUTURE)    
                             Qtarget = reward + trainer.future_reward_discount * Qmax_FUTURE
                             Q_targets_list.append(Qtarget)
-                            print('FATTO3')
+
+                            del(selected_obj_FUTURE)
+                            del(orients_FUTURE)
+                            del(attention_weights_FUTURE)
+                            gc.collect()
 
                         # Convert into tensor
                         Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
@@ -504,7 +504,7 @@ def train(args):
                             # AGGIORNO TARGET NET e salvo snapshot
                             if epoch % args.targetNN_freq == 0:
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
-                                snapshot_targetNet = trainer.save_snapshot('targetNet', max_snapshots=5) 
+                                snapshot_targetNet = target_net.save_snapshot('targetNet', max_snapshots=5) 
                                 print(f"{blue_light}\nAggiorno Target Network {reset}\n")
             
             # Updating the box heightmap and the objective function
@@ -522,7 +522,7 @@ def train(args):
         print(f"{bold}{blue_light}\n Update epsilon{reset}\n")
 
     snapshot = trainer.save_snapshot('trainer', max_snapshots=5) 
-    snapshot_targetNet = trainer.save_snapshot('targetNet', max_snapshots=5) 
+    snapshot_targetNet = target_net.save_snapshot('targetNet', max_snapshots=5) 
     print('End of training')
 
 def test(args):
