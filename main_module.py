@@ -469,7 +469,7 @@ def train(args):
                             # AGGIORNO TARGET NET
                             if epoch % args.targetNN_freq == 0:
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
-                                print(f"{blue_light}\nAggiorno Target Network {reset}\n")
+                                print(f"{red}{bold}\nAggiorno Target Network {reset}\n")
                                 # target_net.load_state_dict(trainer.state_dict())
 
             
