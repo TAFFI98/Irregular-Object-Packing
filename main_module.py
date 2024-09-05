@@ -96,7 +96,7 @@ def train(args):
                 # DEFINISCO TARGET NETWORK PER IL CALCOLO DI Q-target
                 target_net = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
-                            K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
+                            K = k_sort, n_y = args.n_yaw, episode = 0, epoch = 0)
                 if load_snapshot_ == False:
                     target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                 print(f"{bold}\nCreo Target Network{reset}\n")               
@@ -470,6 +470,7 @@ def train(args):
                             if epoch % args.targetNN_freq == 0:
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                                 print(f"{red}{bold}\nAggiorno Target Network {reset}\n")
+                                target_net.epoch = trainer.epoch
                                 # target_net.load_state_dict(trainer.state_dict())
 
             
