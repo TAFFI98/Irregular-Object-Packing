@@ -36,7 +36,6 @@ class Trainer(object):
         self.weight_decay = 2e-5 # weight decay
 
         self.epsilon = epsilon              # Valore iniziale per epsilon
-        # per ora non usati, 
         self.epsilon_min = epsilon_min      # Valore minimo per epsilon
         self.epsilon_decay = epsilon_decay  # Fattore di decrescita per epsilon
     
@@ -194,7 +193,7 @@ class Trainer(object):
         #         plt.show()
 
         # if optimizer_step == True:
-        if replay_buffer_length >= replay_batch_size and counter % 10 ==0:
+        if replay_buffer_length >= replay_batch_size and counter % 2 ==0:
             print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
             self.optimizer_worker.step()
             print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
@@ -560,57 +559,6 @@ class Trainer(object):
                 Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
 
         return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed, float(Q_max.cpu())
-    
-    def check_placement_validity_new(self, env, Q_values, orients, BoxHeightMap, chosen_item_index):
-        """
-        Esegui la scelta epsilon-greedy e salva l'esperienza nella memoria di replay.
-
-        Parametri:
-        env: oggetto dell'ambiente
-        Q_values: predicted Q_values [batch, n_y, n_rp, res, res]
-        orients: array numpy di shape (n_rp*n_y, 3) - angoli roll pitch yaw
-        BoxHeightMap: mappa delle altezze della scatola
-        chosen_item_index: indice dell'oggetto da imballare
-
-        Ritorna:
-        indices_rpy: indice dell'orientamento selezionato
-        pixel_x: coordinata x del pixel selezionato
-        pixel_y: coordinata y del pixel selezionato
-        Q_max: valore massimo di Q
-        """
-
-        # Assicurati che Q_values sia un tensor PyTorch e non un array NumPy
-        if isinstance(Q_values, torch.Tensor):
-            Q_values = Q_values.detach().cpu().numpy()
-
-        # Flatten the Q_values tensor
-        Q_values_flat = Q_values.reshape(-1)
-        Q_size = Q_values.shape
-
-        # Epsilon-greedy choice
-        if random.random() < self.epsilon:
-            # Exploration: scegli un indice casuale
-            random_index = random.randint(0, Q_values_flat.size - 1)
-            print("Sto eseguendo EXPLORATION!")
-        else:
-            # Exploitation: scegli l'indice con il valore Q massimo
-            random_index = Q_values_flat.argmax()
-            print("Sto eseguendo EXPLOITATION!")
-
-        # Converti l'indice piatto in indici multidimensionali
-        index = np.unravel_index(random_index, Q_size)
-        indices_rpy = int(index[0])
-        pixel_x = int(index[1])
-        pixel_y = int(index[2])
-
-        # Salva l'esperienza nella memoria di replay
-        experience = (indices_rpy, pixel_x, pixel_y, Q_values[indices_rpy, pixel_x, pixel_y])
-        self.remember(experience)
-
-        # Restituisci i risultati
-        Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
-        return indices_rpy, pixel_x, pixel_y, Q_max
-
 
 
     def update_epsilon_linear(self):
