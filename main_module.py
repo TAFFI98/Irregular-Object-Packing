@@ -21,6 +21,7 @@ def train(args):
 
     # Initialize snapshots
     snap = args.snapshot
+    snap_targetNet = args.snapshot_targetNet
     
     # Environment setup
     box_size = args.box_size
@@ -92,14 +93,14 @@ def train(args):
                 trainer = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
-                print(f"{bold}\nCreo Policy Network{reset}\n") 
+                print(f"{bold}Creo Policy Network{reset}\n") 
                 # DEFINISCO TARGET NETWORK PER IL CALCOLO DI Q-target
                 target_net = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
-                            load_snapshot = load_snapshot_, file_snapshot = snap,
+                            load_snapshot = load_snapshot_, file_snapshot = snap_targetNet,
                             K = k_sort, n_y = args.n_yaw, episode = 0, epoch = 0)
                 if load_snapshot_ == False:
                     target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
-                print(f"{bold}\nCreo Target Network{reset}\n")               
+                print(f"{bold}Creo Target Network{reset}\n")               
 
         else:
                 # Not the first time the main loop is executed
@@ -953,7 +954,8 @@ if __name__ == '__main__':
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=10) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
-    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_1788_epoch_215.pth') # path to the  network snapshot
+    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/trainer/network_episode_1788_epoch_215.pth') # path to the  network snapshot
+    parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/targetNet/network_episode_0_epoch_3.pth') # path to the target network snapshot
     parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
     parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
     parser.add_argument('--batch_size', dest='batch_size', action='store', default=30) # Batch size for training
