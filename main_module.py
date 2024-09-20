@@ -439,8 +439,6 @@ def train(args):
                         Q_values_FUTURE, selected_obj_FUTURE, orients_FUTURE = target_net.forward_network( input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
                         Q_max_FUTURE = target_net.ebstract_max(Q_values_FUTURE)
                         # FINE NUOVO CODICE
-                        
-
 
                         current_reward, Q_target = trainer.get_Qtarget_value(Q_max_FUTURE, prev_obj, current_obj, env)
                         
@@ -471,9 +469,6 @@ def train(args):
                             if epoch % args.targetNN_freq == 0:
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                                 print(f"{red}{bold}\nAggiorno Target Network {reset}\n")
-                                target_net.epoch = trainer.epoch
-                                # target_net.load_state_dict(trainer.state_dict())
-
             
             # Updating the box heightmap and the objective function
             prev_obj = current_obj
