@@ -4,7 +4,8 @@ Created on  Apr 3 2024
 
 @author: Taffi
 """
-from torchview import draw_graph
+# from torchview import draw_graph
+from fonts_terminal import *
 import pybullet as p
 import numpy as np
 import torch
@@ -15,6 +16,8 @@ from torch.autograd import Variable
 import torchvision
 import matplotlib.pyplot as plt
 import torch.nn.init as init
+import random
+import os
 ''' 
 The selection_placement_net class is responsible for selecting the best object and placing it in the scene.
 The selection_placement_net class is composed of two sub-networks: the selection network and the placement network.
@@ -37,12 +40,12 @@ def even_odd_sign(n):
         return -1
 
 class selection_placement_net(nn.Module):
-    def __init__(self, use_cuda, K, n_y, in_channel_unet = 3, out_channel = 1, method = 'stage_1'):
+    def __init__(self, use_cuda, K, n_y, in_channel_unet = 3, out_channel = 1):
         super(selection_placement_net, self).__init__()
         self.use_cuda = use_cuda
         self.K = K
         self.n_y = n_y
-        self.selection_net = selection_net(self.use_cuda, self.K, method)
+        self.selection_net = selection_net(self.use_cuda, self.K)
         self.placement_net = placement_net(self.n_y, in_channel_unet, out_channel, self.use_cuda)
         if self.use_cuda == True:
             self.selection_net.cuda()
@@ -63,14 +66,13 @@ class selection_placement_net(nn.Module):
 
         # Compute Q-values using the placement network
         Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
-        return Q_values, selected_obj, orients
-    
+        return Q_values, selected_obj, orients, attention_weights
+
 class selection_net(nn.Module):
-    def __init__(self, use_cuda, K, method): 
+    def __init__(self, use_cuda, K): 
         super(selection_net, self).__init__()
         self.use_cuda = use_cuda
         self.K = K
-        self.method = method
         
         # Initialize network trunks with ResNet pre-trained on ImageNet
         self.backbones = nn.ModuleList([self.initialize_backbone() for _ in range(self.K)])
@@ -110,49 +112,41 @@ class selection_net(nn.Module):
                 input_1 = input_1.cuda()
                 input_2 = input_2.cuda()
                 item_ids = item_ids.cuda()
+    
+        concatenated_features = []
+        zero_masks = []
+        for k in range(self.K):
+            # Check if the input is all zeros
+            is_all_zero = torch.all(input_1[:, k, :, :, :] == 0)
+            zero_masks.append(is_all_zero)
 
-        if self.method == 'stage_1':
-            # Create a new tensor with the same shape as existing_tensor, filled with zeros
-            score_values = torch.zeros((1, self.K))
-            # Set the first element to 1
-            score_values[0, 0] = 1
-            if self.use_cuda:
-                score_values = score_values.cuda()
-        
-        elif self.method == 'stage_2':
-            concatenated_features = []
-            zero_masks = []
-            for k in range(self.K):
-                # Check if the input is all zeros
-                is_all_zero = torch.all(input_1[:, k, :, :, :] == 0)
-                zero_masks.append(is_all_zero)
+            # Show the selected tensor
+            # fig, axs = plt.subplots(1, 1, figsize=(10, 5))
+            # axs.imshow(input_1[0, k, 0, :, :].detach().cpu().numpy(), cmap='viridis', origin='lower')
+            # axs.set_xlabel('X')
+            # axs.set_ylabel('Y')
+            # plt.tight_layout()
+            # plt.show()
 
-                # Show the selected tensor
-                # fig, axs = plt.subplots(1, 1, figsize=(10, 5))
-                # axs.imshow(input_1[0, k, 0, :, :].detach().cpu().numpy(), cmap='viridis', origin='lower')
-                # axs.set_xlabel('X')
-                # axs.set_ylabel('Y')
-                # plt.tight_layout()
-                # plt.show()
+            concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
+            backbone_output = self.backbones[k](concatenated_input.float())
+            pooled_features = self.spatial_pooling(backbone_output)
+            pooled_features = pooled_features.squeeze(dim=-1).squeeze(dim=-1)
+            concatenated_features.append(pooled_features)
 
-                concatenated_input = torch.cat((input_1[:, k, :, :, :], input_2), dim=1)
-                backbone_output = self.backbones[k](concatenated_input.float())
-                pooled_features = self.spatial_pooling(backbone_output)
-                pooled_features = pooled_features.squeeze(dim=-1).squeeze(dim=-1)
-                concatenated_features.append(pooled_features)
+        concatenated_features = torch.stack(concatenated_features, dim=1)
+        score_values = self.final_selection_layers(concatenated_features)
 
-            concatenated_features = torch.stack(concatenated_features, dim=1)
-            score_values = self.final_selection_layers(concatenated_features)
+        # Convert zero_masks to a tensor and expand to match the shape of score_values
+        zero_masks_tensor = torch.tensor(zero_masks, device=input_1.device).float().unsqueeze(0)
+        zero_masks_tensor = zero_masks_tensor.expand_as(score_values)
 
-            # Convert zero_masks to a tensor and expand to match the shape of score_values
-            zero_masks_tensor = torch.tensor(zero_masks, device=input_1.device).float().unsqueeze(0)
-            zero_masks_tensor = zero_masks_tensor.expand_as(score_values)
+        # Ensure score_values for all-zero inputs remain zero
+        score_values = score_values * (1 - zero_masks_tensor)
 
-            # Ensure score_values for all-zero inputs remain zero
-            score_values = score_values * (1 - zero_masks_tensor)
-
-        return score_values
-
+        return Q_values, score_values
+    
+    
 class final_conv_select_net(nn.Module):
     def __init__(self, use_cuda, K):
         super(final_conv_select_net, self).__init__()
@@ -184,7 +178,6 @@ class final_conv_select_net(nn.Module):
         )
 
     def forward(self, x):
-
         outputs = []
 
         # Loop through each branch
@@ -351,7 +344,8 @@ class placement_net(nn.Module):
         input_unet = torch.cat([rotated_hm,input2], dim=-1)
 
         return input_unet.float()
-            
+    
+           
 class Downsample(nn.Module):
     '''
     The Downsample class is responsible for reducing the spatial dimensions of the feature maps by half while maintaining the number of channels.
@@ -435,7 +429,7 @@ if __name__ == '__main__':
         input1_placement_rp_angles = torch.randn(n_rp,2)
         input2_placement_HM_rp = torch.randn(batch_size, K, n_rp, resolution, resolution, 2)
         
-    model = selection_placement_net(use_cuda = cuda, K = K, n_y = 4, method = method)
+    model = selection_placement_net(use_cuda = cuda, K = K, n_y = 4)
     model.train()
 
 

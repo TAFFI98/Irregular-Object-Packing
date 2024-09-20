@@ -891,6 +891,34 @@ class Env(object):
         reward  = obj_2 - obj_1
         return reward
     
+
+    def calculate_reward(is_packed, attempt, max_attempts):
+        """
+        Calcola la ricompensa per il tentativo di inserimento dell'oggetto.
+
+        Parametri:
+        - is_packed: boolean, True se l'oggetto è stato inserito correttamente, False altrimenti
+        - attempt: int, numero del tentativo corrente
+        - max_attempts: int, numero massimo di tentativi consentiti
+
+        Output:
+        - reward: float, il valore della ricompensa per questo tentativo
+        """
+        
+        # Se l'oggetto non è stato inserito
+        if not is_packed:
+            return -1
+        
+        # Se l'oggetto è stato inserito
+        if is_packed:
+            # Se è stato inserito al primo tentativo, la ricompensa massima è 1
+            if attempt == 1:
+                return 1
+            # Riduci la ricompensa in base al numero di tentativi
+            else:
+                reward = 1 - (attempt / max_attempts)
+                return reward
+    
     def get_z(self, Hc, Hb, pixel_x, pixel_y, obj_length, obj_width):
         '''
         Hc: numpy array of shape (resolution, resolution) representing the current box heightmap
