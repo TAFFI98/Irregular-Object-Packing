@@ -31,6 +31,7 @@ def train(args):
     
     # Initialize experience replay buffer 
     replay_buffer = ExperienceReplayBuffer(args.replay_buffer_capacity, args.replay_batch_size)
+    sample_counter_threshold = args.sample_counter_threshold
 
     for new_episode in range(args.new_episodes):
         # Check if k_min is greater than 2
@@ -484,11 +485,11 @@ def train(args):
 
                         replay_buffer_length = replay_buffer.get_buffer_length()
 
-                        loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size, sample_counter)
+                        loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size, sample_counter, sample_counter_threshold)
 
                         # Update epochs samples counters and save snapshots
                         # SE MODIFICHE SAMPLE_COUNTER => CAMBIA ANCHE IN BACKPROPAGATION !!!!!!!!!!!!!!!!!!!
-                        if replay_buffer_length >= replay_buffer.batch_size and sample_counter % 2 == 0:    
+                        if replay_buffer_length >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:    
                             epoch += 1
                             sample_counter = 0
                             print(f"{red}{bold}SONO QUI!!!!!!!!!!!!!!!!!!!!!!!!!!!!!{reset}\n")
@@ -502,8 +503,6 @@ def train(args):
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                                 snapshot_targetNet = target_net.save_snapshot('targetNet', max_snapshots=5) 
                                 print(f"{red}{bold}\nAggiorno Target Network {reset}\n")
-                                target_net.epoch = trainer.epoch
-                                print(target_net.epoch)
 
                             # save snapshots and remove old ones if more than max_snapshots
                             if epoch % 5 == 0: 
@@ -1013,6 +1012,8 @@ if __name__ == '__main__':
     # experience replay
     parser.add_argument('--replay_buffer_capacity', action='store', default=30)  #size of the experience replay buffer 
     parser.add_argument('--replay_batch_size', action='store', default=1)        #size of the batch ebstracted from experience replay buffer
+    parser.add_argument('--sample_counter_threshold', action='store', default=1)        #
+
 
     args = parser.parse_args()
     
