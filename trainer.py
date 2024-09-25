@@ -624,7 +624,7 @@ class Trainer(object):
           random_index = torch.randint(0, Q_values_flat.size(0), (1,)).item()
         else:
           # Exploitation: select the index with the maximum Q value
-          print(f'{red_light}Sto eseguendo EXPLORATION!{reset}')
+          print(f'{red_light}Sto eseguendo EXPLOITATION!{reset}')
           _, random_index = torch.max(Q_values_flat, 0)
 
         # Unravel the index to get the 3D coordinates
