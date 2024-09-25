@@ -38,7 +38,7 @@ def even_odd_sign(n):
         return 1
     else:
         return -1
-
+"""
 class selection_placement_net(nn.Module):
     def __init__(self, use_cuda, K, n_y, in_channel_unet = 3, out_channel = 1):
         super(selection_placement_net, self).__init__()
@@ -56,31 +56,33 @@ class selection_placement_net(nn.Module):
     
     def forward(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
         # Compute score values using the selection network
-        score_values = self.selection_net(input1_selection_HM_6views, boxHM, input2_selection_ids)
+        Q_values_sel = self.selection_net(input1_selection_HM_6views, boxHM, input2_selection_ids)
         # Apply Gumbel-Softmax to the score values
         alpha = 900
-        attention_weights = torch.softmax(alpha * score_values,dim =1)
+        attention_weights = torch.softmax(alpha * Q_values_sel,dim =1)
         while torch.max(attention_weights).item() == 1:
                     alpha = alpha - 100
-                    attention_weights = torch.softmax(alpha * score_values, dim =1)
+                    attention_weights = torch.softmax(alpha * Q_values_sel, dim =1)
 
         # Compute Q-values using the placement network
-        Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
-        return Q_values, selected_obj, orients, attention_weights
-
+        Q_values_pla, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
+        return Q_values_sel, Q_values_pla, selected_obj, orients, attention_weights
+"""
 class selection_net(nn.Module):
     def __init__(self, use_cuda, K): 
         super(selection_net, self).__init__()
         self.use_cuda = use_cuda
         self.K = K
+        self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
         
         # Initialize network trunks with ResNet pre-trained on ImageNet
         self.backbones = nn.ModuleList([self.initialize_backbone() for _ in range(self.K)])
+        self.optimizer = torch.optim.Adam(self.selection_placement_net.selection_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)        
         
         # Add a spatial pooling layer to pool the (7, 7) features
         self.spatial_pooling = nn.AvgPool2d(kernel_size=(7, 7))
         
-        self.final_selection_layers = final_conv_select_net(self.use_cuda, self.K)
+        self.final_selection_layers = final_conv_select_net(self.use_cuda, self.K, output_dim=1)
 
         # Freeze the parameters of the backbone networks
         for backbone in self.backbones:
@@ -107,7 +109,7 @@ class selection_net(nn.Module):
 
         return backbone
 
-    def forward(self, input_1, input_2, item_ids):
+    def forward(self, input_1, input_2, item_ids, epsilon):
         if self.use_cuda:
                 input_1 = input_1.cuda()
                 input_2 = input_2.cuda()
@@ -135,35 +137,115 @@ class selection_net(nn.Module):
             concatenated_features.append(pooled_features)
 
         concatenated_features = torch.stack(concatenated_features, dim=1)
-        score_values = self.final_selection_layers(concatenated_features)
+        Q_values = self.final_selection_layers(concatenated_features)
 
         # Convert zero_masks to a tensor and expand to match the shape of score_values
         zero_masks_tensor = torch.tensor(zero_masks, device=input_1.device).float().unsqueeze(0)
-        zero_masks_tensor = zero_masks_tensor.expand_as(score_values)
+        zero_masks_tensor = zero_masks_tensor.expand_as(Q_values)
 
         # Ensure score_values for all-zero inputs remain zero
-        score_values = score_values * (1 - zero_masks_tensor)
+        Q_values = Q_values * (1 - zero_masks_tensor)
 
-        return Q_values, score_values
+        
+        # Apply Gumbel-Softmax to the score values
+        alpha = 900
+        attention_weights = torch.softmax(alpha * Q_values,dim =1)
+        while torch.max(attention_weights).item() == 1:
+            alpha = alpha - 100
+            attention_weights = torch.softmax(alpha * Q_values, dim =1)
+
+        # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
+        if np.random.rand() < epsilon:
+            # Scegli un'azione casuale
+            print(f'{red_light}Sto eseguendo EXPLORATION!{reset}') 
+            selected_obj = np.random.choice(len(Q_values))  # Assumendo che q_values sia un array
+        else:
+            # Scegli l'azione con il massimo Q-value
+            print(f'{red_light}Sto eseguendo EXPLOITATION{reset}')
+            selected_obj = np.argmax(Q_values)
+        
+        """
+        PRENDE OGGETTO DA attention_weights
+        # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
+        if np.random.rand() < epsilon:
+            # Scegli un'azione casuale
+            print(f'{red_light}Sto eseguendo EXPLORATION!{reset}') 
+            selected_obj = random.randint(0, self.K - 1)
+        else:
+            # Scegli l'azione con il massimo Q-value
+            selected_obj = int(torch.argmax(Q_values).cpu().numpy())
+            selected_obj = np.argmax(attention_weights)
+        """
+        selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
+
+        return Q_values, selected_obj, attention_weights
+    
+    # Compute labels and backpropagate
+    def backprop(self, Q_targets_tensor, Q_values_tensor, counter, counter_treshold):            
+
+        loss = self.criterion(Q_values_tensor, Q_targets_tensor)
+        loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+        print(f"{blue_light}\nComputing loss and gradients on Selection Network{reset}")
+        print('Training loss: %f' % (loss))
+        print('---------------------------------------') 
+        # Clip gradients
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+
+        # Inspect gradients
+        # print('SELECTION NETWORK GRAIDENTS:')
+        # for name, param in self.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
+        #     else:
+        #         print(f"Layer: {name} | No gradients computed")
+
+        # Check for NaN gradients
+        for name, param in self.named_parameters():           
+            if param.grad is not None:
+                if torch.isnan(param.grad).any():
+                    raise ValueError("Gradient of {name} is NaN!")
+
+        # for name, param in self.named_parameters():
+        #     if param.requires_grad and param.grad is not None:
+        #         plt.figure(figsize=(10, 5))
+        #         plt.title(f'Gradients for {name}')
+        #         plt.hist(param.grad.cpu().numpy().flatten(), bins=50, log=True)
+        #         plt.xlabel('Gradient Value')
+        #         plt.ylabel('Count')
+        #         plt.show()
+
+        # if optimizer_step == True:
+        if counter % counter_treshold == 0: 
+        # if self.epoch % 4 == 0:             
+            print(f"{blue_light}\nBackpropagating loss on Selection Network (manager network){reset}\n")
+            print('---------------------------------------') 
+            self.optimizer.step()
+            print('---------------------------------------')           
+            print(f"{purple}Selection Network trained on ", self.epoch+1, f"EPOCHS{reset}")    # ???????????????????????????????????????????????????????????????????????
+            print('---------------------------------------')  
+            self.optimizer.zero_grad()
+
+        if self.use_cuda:
+            torch.cuda.empty_cache()
+
+        return loss
     
     
 class final_conv_select_net(nn.Module):
-    def __init__(self, use_cuda, K):
+    def __init__(self, use_cuda, K, output_dim=1):
         super(final_conv_select_net, self).__init__()
 
         self.num_classes = K
 
         # Define fully connected layers for each branch
-        self.fc_layers = nn.ModuleList([self.create_fc_layers() for _ in range(K)])
-        
-        # Sigmoid activation function
-        self.sigmoid = nn.Sigmoid()
+        self.fc_layers = nn.ModuleList([self.create_fc_layers(output_dim) for _ in range(K)])
 
         # Move model to GPU if use_cuda is True
         if use_cuda:
             self.cuda()
 
-    def create_fc_layers(self):
+    def create_fc_layers(self, output_dim):
         return nn.Sequential(
             nn.Linear(512, 256),
             nn.ReLU(),
@@ -174,7 +256,7 @@ class final_conv_select_net(nn.Module):
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(64, 1)
+            nn.Linear(64, output_dim)
         )
 
     def forward(self, x):
@@ -191,9 +273,6 @@ class final_conv_select_net(nn.Module):
         # Concatenate the outputs along the class dimension
         concatenated_outputs = torch.cat(outputs, dim=1)  # (batch, K)
 
-        # Apply sigmoid activation
-        concatenated_outputs = self.sigmoid(concatenated_outputs) # (batch, K)
-
         return concatenated_outputs
     
 class placement_net(nn.Module):
@@ -201,7 +280,11 @@ class placement_net(nn.Module):
         super(placement_net, self).__init__()
         self.n_y = n_y
         self.use_cuda = use_cuda
+        
+        self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
+        self.optimizer = torch.optim.Adam(self.selection_placement_net.placement_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
 
+        
         # Define layers for U-Net architecture
         self.layer1_conv_block = conv_block(in_channel_unet, out_channel)
         self.layer2_Downsample = Downsample(out_channel)
@@ -224,7 +307,7 @@ class placement_net(nn.Module):
         # Without an activation function, the output values of the heatmap produced by the final convolutional 
         # layer can assume any real number, ranging from negative to positive infinity.
 
-    def forward(self, roll_pitch_angles, input1, input2,  attention_weights):
+    def forward(self, roll_pitch_angles, input1, input2, attention_weights):
         if self.use_cuda:
             input1 = input1.cuda()
             input2 = input2.cuda()
@@ -252,7 +335,7 @@ class placement_net(nn.Module):
         # plt.tight_layout()
         # plt.show()
 
-        selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
+        ### selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
         
         angles_yaw = torch.arange(0, 360, 360 / self.n_y).unsqueeze(0).to(input1.device)
         # Expand and reshape angles_yaw
@@ -268,7 +351,7 @@ class placement_net(nn.Module):
         
         unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orients, input2 ) # torch.Size([n_rp*n_y, res, res, 3])
         Q_values = self.unet_forward(unet_input) # torch.Size([n_rp*n_y, res, res])
-        return Q_values, selected_obj, orients
+        return Q_values, orients
 
     def unet_forward(self, x):
         ''' Reshape input '''
@@ -344,6 +427,55 @@ class placement_net(nn.Module):
         input_unet = torch.cat([rotated_hm,input2], dim=-1)
 
         return input_unet.float()
+    
+        # Compute labels and backpropagate
+    def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter, counter_treshold):            
+
+        loss = self.criterion(Q_values_tensor, Q_targets_tensor)
+        loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+        print(f"{blue_light}\nComputing loss and gradients on Placement Network{reset}")
+        print('Training loss: %f' % (loss))
+        print('---------------------------------------') 
+        # Clip gradients
+        torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
+
+        # Inspect gradients
+        # print('NETWORK GRAIDENTS:')
+        # for name, param in self.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
+        #     else:
+        #         print(f"Layer: {name} | No gradients computed")
+
+        # Check for NaN gradients
+        for name, param in self.named_parameters():
+            if param.grad is not None:
+                if torch.isnan(param.grad).any():
+                    raise ValueError("Gradient of {name} is NaN!")
+
+        # for name, param in self.named_parameters():
+        #     if param.requires_grad and param.grad is not None:
+        #         plt.figure(figsize=(10, 5))
+        #         plt.title(f'Gradients for {name}')
+        #         plt.hist(param.grad.cpu().numpy().flatten(), bins=50, log=True)
+        #         plt.xlabel('Gradient Value')
+        #         plt.ylabel('Count')
+        #         plt.show()
+
+        # if optimizer_step == True:
+        if replay_buffer_length >= replay_batch_size and counter % counter_treshold == 0:
+            print(f"{blue_light}\nBackpropagating loss on Placement Network (worker network){reset}\n")
+            self.optimizer.step()
+            print(f"{purple}Placement Network trained on ", self.epoch+1, f"EPOCHS{reset}")
+            print('---------------------------------------')  
+            self.optimizer.zero_grad()
+            self.epoch = self.epoch+1
+
+        if self.use_cuda:
+            torch.cuda.empty_cache()
+
+        return loss
     
            
 class Downsample(nn.Module):

@@ -15,7 +15,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from models import  selection_placement_net
+from models import  placement_net
+from models import  selection_net
 from scipy import ndimage
 import cv2
 import numpy as np
@@ -25,7 +26,7 @@ from experience_replay import ExperienceReplayBuffer
 import random
 
 class Trainer(object):
-    def __init__(self, epsilon, epsilon_min, epsilon_decay, future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
+    def __init__(self, type, epsilon, epsilon_min, epsilon_decay, future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
         self.n_y = n_y           # number of discrete yaw orientations
         self.K = K               # total number of items to be packed
         self.epoch = epoch       # epoch counter
@@ -48,32 +49,58 @@ class Trainer(object):
             print(f"{bold}CUDA is *NOT* detected. Running with only CPU.{reset}")
             self.use_cuda = False
 
-        # INITIALIZE NETWORK
-        self.selection_placement_net = selection_placement_net(K = self.K, n_y = self.n_y, use_cuda = self.use_cuda)
+        if type == 'manager':
+            # INITIALIZE NETWORK
+            self.selection_net = selection_net(use_cuda = self.use_cuda, K = self.K)
+                
+            # Initialize Huber loss
+            self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
+            self.future_reward_discount = future_reward_discount
+
+            # Load pre-trained model
+            if load_snapshot:
+                map_location = torch.device('cuda') if self.use_cuda else torch.device('cpu')
+                self.selection_net.load_state_dict(torch.load(file_snapshot, map_location=map_location))
+                print(f'{red}Pre-trained model snapshot loaded from: %s' % (file_snapshot),f'{reset}')
+        
+            # Convert model from CPU to GPU
+            if self.use_cuda:
+                self.selection_net = self.selection_net.cuda()
             
-        # Initialize Huber loss
-        self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
-        self.future_reward_discount = future_reward_discount
+            # Set model to training mode
+            self.selection_net.train()
 
-        # Load pre-trained model
-        if load_snapshot:
-            map_location = torch.device('cuda') if self.use_cuda else torch.device('cpu')
-            self.selection_placement_net.load_state_dict(torch.load(file_snapshot, map_location=map_location))
-            # self.selection_placement_net.load_state_dict(torch.load(file_snapshot))
-            print(f'{red}Pre-trained model snapshot loaded from: %s' % (file_snapshot),f'{reset}')
-    
-        # Convert model from CPU to GPU
-        if self.use_cuda:
-                self.selection_placement_net = self.selection_placement_net.cuda()
+            # Initialize optimizers
+            self.optimizer_manager = torch.optim.Adam(self.selection_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            self.iteration = 0
+            
 
-        # Set model to training mode
-        self.selection_placement_net.train()
+        elif type == 'worker':
+            # INITIALIZE NETWORK
+            self.placement_net = placement_net(n_y = self.n_y, in_channel_unet = 3, out_channel = 1, use_cuda = self.use_cuda)
+                
+            # Initialize Huber loss
+            self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
+            self.future_reward_discount = future_reward_discount
+
+            # Load pre-trained model
+            if load_snapshot:
+                map_location = torch.device('cuda') if self.use_cuda else torch.device('cpu')
+                self.placement_net.load_state_dict(torch.load(file_snapshot, map_location=map_location))
+                # self.selection_placement_net.load_state_dict(torch.load(file_snapshot))
+                print(f'{red}Pre-trained model snapshot loaded from: %s' % (file_snapshot),f'{reset}')
         
-        # Initialize optimizers
-        self.optimizer_manager = torch.optim.Adam(self.selection_placement_net.selection_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        self.optimizer_worker = torch.optim.Adam(self.selection_placement_net.placement_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        self.iteration = 0
+            # Convert model from CPU to GPU
+            if self.use_cuda:
+                self.placement_net = self.placement_net.cuda()
+
+            # Set model to training mode
+            self.placement_net.train()
         
+            # Initialize optimizers
+            self.optimizer_worker = torch.optim.Adam(self.placement_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            self.iteration = 0
+            
         print('---------------------------------------------------')
         print(f"{bold}TRAINER INITIALIZED.{reset}")
         print('---------------------------------------------------')
@@ -119,6 +146,7 @@ class Trainer(object):
         print('---------------------------------------')           
         return current_reward, Q_target
 
+    """
     # Compute labels and backpropagate
     def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter):            
 
@@ -176,86 +204,7 @@ class Trainer(object):
             torch.cuda.empty_cache()
 
         return loss
-
-    def save_and_plot_loss_OLD(self, list_epochs_for_plot, losses, folder, max_images = 4):
-        '''
-        list_epochs_for_plot: list of epochs
-        losses: list of losses
-        folder: folder to save the plots
-        max_images: maximum number of images to save
-        This function saves the loss values and plots them
-        '''
-        # Ensure the folder exists
-        os.makedirs(folder, exist_ok=True)
-
-        # Get the number of epochs
-        num_epochs = int(list_epochs_for_plot[-1])
-
-        # Save the lists to a file
-        with open(os.path.join(folder, f'loss_epoch_{num_epochs}.pkl'), 'wb') as f:
-            pickle.dump((list_epochs_for_plot, losses), f)
-
-        # Plot the data
-        plt.figure()
-        plt.plot(list_epochs_for_plot, losses)
-        plt.xlabel('Epochs')
-        plt.ylabel('Loss')
-        plt.grid(True)
-
-        # Save the plot to a file
-        plt.savefig(os.path.join(folder, f'loss_epoch_{num_epochs}.png'))
-        plt.close()
-        # Get a list of all files in the directory
-        files = glob.glob(os.path.join(folder, '*'))
-
-        # If there are more than 5 files
-        if len(files) > max_images:
-                # Sort the files by modification time
-                files.sort(key=os.path.getmtime)
-
-                # Remove the oldest file
-                os.remove(files[0])
-                os.remove(files[1])
-
-    def save_and_plot_reward_OLD(self, list_epochs_for_plot, rewards, folder, max_images = 4):
-        '''
-        list_epochs_for_plot: list of epochs
-        rewards: list of rewards
-        folder: folder to save the plots
-        max_images: maximum number of images to save
-        This function saves the reward values and plots them
-        '''
-        # Ensure the folder exists
-        os.makedirs(folder, exist_ok=True)
-
-        # Get the number of epochs
-        num_epochs = int(list_epochs_for_plot[-1])
-
-        # Save the lists to a file
-        with open(os.path.join(folder, f'reward_epoch_{num_epochs}.pkl'), 'wb') as f:
-            pickle.dump((list_epochs_for_plot, rewards), f)
-
-        # Plot the data
-        plt.figure()
-        plt.plot(list_epochs_for_plot, rewards)
-        plt.xlabel('Epochs')
-        plt.ylabel('Reward')
-        plt.grid(True)
-
-        # Save the plot to a file
-        plt.savefig(os.path.join(folder, f'reward_epoch_{num_epochs}.png'))
-        plt.close()
-        # Get a list of all files in the directory
-        files = glob.glob(os.path.join(folder, '*'))
-
-        # If there are more than 5 files
-        if len(files) > max_images:
-                # Sort the files by modification time
-                files.sort(key=os.path.getmtime)
-
-                # Remove the oldest file
-                os.remove(files[0])
-                os.remove(files[1])
+    """
 
     # NEW VODE THAT PLOT FROM STAR OF THE TRAINIBG, NOT JUST THE EPOCHS IN THE CURRENT SESSION
     def save_and_plot_loss(self, epoch_number, loss, folder, max_images=4):
@@ -368,7 +317,6 @@ class Trainer(object):
             for file in files[:len(files) - max_images]:
                 os.remove(file)
 
-  
     # Visualize the predictions of the worker network: Q_values
     def visualize_Q_values(self, Q_values, show = True, save = False, path = 'snapshots/Q_values/'):
         '''
@@ -452,7 +400,7 @@ class Trainer(object):
           random_index = torch.randint(0, Q_values_flat.size(0), (1,)).item()
         else:
           # Exploitation: select the index with the maximum Q value
-          print(f'{red_light}Sto eseguendo EXPLORATION!{reset}')
+          print(f'{red_light}Sto eseguendo EXPLOITATION!{reset}')
           _, random_index = torch.max(Q_values_flat, 0)
 
         # Unravel the index to get the 3D coordinates
@@ -680,6 +628,7 @@ class Trainer(object):
         eps = self.epsilon_min / ( 1 + self.epsilon_decay ** t)
         self.epsilon = max(eps, self.epsilon_min)
         print(f'{blue_light}Nuovo valore di epsilon: {self.epsilon}{reset}')    
+
 
     def save_snapshot(self, folder_name, max_snapshots=5):
         """
