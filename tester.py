@@ -15,7 +15,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from models import  selection_placement_net
+from models import  placement_net
+from models import  selection_net
 from scipy import ndimage
 import cv2
 import numpy as np
