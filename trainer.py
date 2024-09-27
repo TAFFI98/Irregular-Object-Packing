@@ -417,10 +417,6 @@ class Trainer(object):
         # Pack chosen item with predicted pose
         target_euler = [r, p, y]
         # Compute z coordinate
-        print(chosen_item_index)
-        print('SPACE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-        print(target_euler)
-        
         _, Hb_selected_obj, obj_length, obj_width, offsets = env.item_hm(chosen_item_index, target_euler)
         offset_pointminz_COM = offsets[4]
 

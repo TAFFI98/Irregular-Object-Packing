@@ -176,8 +176,11 @@ class selection_net(nn.Module):
             selected_obj = np.argmax(attention_weights)
         """
         selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
+        selected_obj_pybullet = int(item_ids.clone().cpu().detach()[selected_obj]) 
+        
+        Qvalue = Q_values[:, selected_obj]
 
-        return Q_values, selected_obj, attention_weights
+        return Q_values, Qvalue, selected_obj_pybullet, attention_weights
     
     # Compute labels and backpropagate
     def backprop(self, Q_targets_tensor, Q_values_tensor, counter, counter_treshold):            
@@ -346,6 +349,9 @@ class placement_net(nn.Module):
         
         unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orients, input2 ) # torch.Size([n_rp*n_y, res, res, 3])
         Q_values = self.unet_forward(unet_input) # torch.Size([n_rp*n_y, res, res])
+        
+        
+        orients = orients.cpu().detach().numpy()
         return Q_values, orients
 
     def unet_forward(self, x):

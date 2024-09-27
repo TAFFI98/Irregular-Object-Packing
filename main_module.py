@@ -296,8 +296,8 @@ def train(args):
 
             
             # Forward Selection Net
-            Q_values_sel, selected_obj, attention_weights = policy_sel_net.selection_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, policy_sel_net.epsilon) 
-            Qvalue_sel = Q_values_sel[:, selected_obj]
+            Q_values_sel, Qvalue_sel, selected_obj, attention_weights = policy_sel_net.selection_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, policy_sel_net.epsilon) 
+            #Qvalue_sel = Q_values_sel[:, selected_obj]
             
             # Forwad Placement Net
             Q_values_pla, orients = policy_pla_net.placement_net.forward(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights) 

@@ -357,7 +357,7 @@ class Env(object):
         p.resetBasePositionAndOrientation(int(item_id),[1,1,1],quater)       
         self.stop_physics()
         _, vertices = p.getMeshData(bodyUniqueId=int(item_id), linkIndex=-1)
-
+        
         # vertices is a list of tuples, each representing a vertex of the mesh.
         # We can use a list comprehension to get all the z values and then find the maximum.
 
