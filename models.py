@@ -153,6 +153,7 @@ class selection_net(nn.Module):
             alpha = alpha - 100
             attention_weights = torch.softmax(alpha * Q_values, dim =1)
 
+        """
         # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
         if np.random.rand() < epsilon:
             # Scegli un'azione casuale
@@ -161,7 +162,11 @@ class selection_net(nn.Module):
         else:
             # Scegli l'azione con il massimo Q-value
             print(f'{red_light}Sto eseguendo EXPLOITATION{reset}')
-            selected_obj = np.argmax(Q_values)
+            selected_obj = int(torch.argmax(Q_values, dim=1).detach().cpu().numpy())
+        """
+        print(f'{red_light}Sto eseguendo EXPLOITATION{reset}')
+        selected_obj = int(torch.argmax(Q_values, dim=1).detach().cpu().numpy())
+        
         
         """
         PRENDE OGGETTO DA attention_weights

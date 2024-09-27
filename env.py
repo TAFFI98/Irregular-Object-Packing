@@ -357,7 +357,7 @@ class Env(object):
         p.resetBasePositionAndOrientation(int(item_id),[1,1,1],quater)       
         self.stop_physics()
         _, vertices = p.getMeshData(bodyUniqueId=int(item_id), linkIndex=-1)
-        
+
         # vertices is a list of tuples, each representing a vertex of the mesh.
         # We can use a list comprehension to get all the z values and then find the maximum.
 
@@ -892,7 +892,7 @@ class Env(object):
         return reward
     
 
-    def calculate_reward(is_packed, attempt, max_attempts):
+    def calculate_reward(self, is_packed, attempt, max_attempts):
         """
         Calcola la ricompensa per il tentativo di inserimento dell'oggetto.
 
@@ -907,17 +907,19 @@ class Env(object):
         
         # Se l'oggetto non è stato inserito
         if not is_packed:
-            return -1
+            reward = -1
         
         # Se l'oggetto è stato inserito
         if is_packed:
             # Se è stato inserito al primo tentativo, la ricompensa massima è 1
             if attempt == 1:
-                return 1
+                reward =  1
             # Riduci la ricompensa in base al numero di tentativi
             else:
                 reward = 1 - (attempt / max_attempts)
-                return reward
+                
+        
+        return reward
     
     def get_z(self, Hc, Hb, pixel_x, pixel_y, obj_length, obj_width):
         '''

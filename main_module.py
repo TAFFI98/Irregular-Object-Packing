@@ -387,7 +387,6 @@ def train(args):
                     Q_targets_list = []
 
                     for experience in experiences_batch:
-
                         state, action, reward, new_state = experience
                         att_weights, rpy, x, y = action
                         box_HM, placement_rp_angles, placement_HM_rp = state                
@@ -402,7 +401,8 @@ def train(args):
                         #TARGET PLACEMENT
                         # Q_values_sel_FUT, selected_obj_FUTURE, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
                         # ???????? DA DOVE PRENDO attention_weights_FUTURE ?????????????????????????????????????????
-                        Q_values_pla_FUTURE, orients_FUTURE = target_pla_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
+                        print('SONO QUI !!!!!!!!!!!!!!!!!!!!!!!!!!')
+                        Q_values_pla_FUTURE, orients_FUTURE = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
                         Qmax_FUTURE = target_pla_net.ebstract_max(Q_values_pla_FUTURE)    
                         Qtar_pla = reward + placement_net.future_reward_discount * Qmax_FUTURE
 
@@ -441,7 +441,7 @@ def train(args):
                     reward_sel = env.Reward_function(prev_obj, current_obj)
 
                     # Forward TARGET selection net
-                    Q_values_sel_FUTURE, _ , _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
+                    Q_values_sel_FUTURE, _, _ , _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
                     Qmax_FUTURE = target_sel_net.ebstract_max(Q_values_sel_FUTURE)    
                     Q_target_sel = reward + policy_sel_net.future_reward_discount * Qmax_FUTURE
 
