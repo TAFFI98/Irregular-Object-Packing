@@ -417,6 +417,10 @@ class Trainer(object):
         # Pack chosen item with predicted pose
         target_euler = [r, p, y]
         # Compute z coordinate
+        print(chosen_item_index)
+        print('SPACE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+        print(target_euler)
+        
         _, Hb_selected_obj, obj_length, obj_width, offsets = env.item_hm(chosen_item_index, target_euler)
         offset_pointminz_COM = offsets[4]
 
@@ -441,14 +445,14 @@ class Trainer(object):
             env.removeAABB(limits_obj_line_ids)
             BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
             packed = False
-            Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
+            #Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
         elif height_exceeded_before_pack:
             print(f'{red_light}Box height exceeded before packing action!{reset}')
             # Place the object back to its original position since this predicted pose would not be valid
             env.removeAABB(limits_obj_line_ids)
             BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
             packed = False
-            Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
+            #Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
         else:
             print(f'{green_light}No collision detected.{reset}')
             # Check if the height of the box is exceeded
@@ -459,7 +463,7 @@ class Trainer(object):
                 env.removeAABB(limits_obj_line_ids)
                 BoxHeightMap = env.unpack_item(chosen_item_index, old_pos, old_quater)
                 packed = False
-                Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
+                #Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
             else:
                 print(f'{green_light}Box height not exceeded.{reset}')
                 print('--------------------------------------')
@@ -469,9 +473,9 @@ class Trainer(object):
                 print(f'{purple_light}>Stability is:', stability_of_packing, f'{reset}')
                 env.removeAABB(limits_obj_line_ids)
                 packed = True
-                Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
+                #Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
 
-        return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed, float(Q_max.cpu()), attempt
+        return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed, attempt
 
 
     def check_placement_validity_TENTATIVES(self, env, Q_values, orients, BoxHeightMap, chosen_item_index, max_attempts):
@@ -501,7 +505,7 @@ class Trainer(object):
         _, _, box_height = env.box_size
 
         # Epsilon-greedy strategy: Explore (choose random index) or exploit (choose best Q_value)
-        if random.random() < epsilon:
+        if random.random() < self.epsilon:
             # Exploration: choose a random index
             exploration = True
             print(f"Exploring: Random action chosen at attempt {attempt + 1}")

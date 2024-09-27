@@ -76,12 +76,12 @@ def train(args):
                 
                 # Initialize trainer (POLICY NET)
                 print(f"{bold}\nCreo Policy Networks{reset}\n") 
-                print(f"{bold}Creo Selection Network [MANAGER]{reset}\n") 
+                print(f"{bold}creo Selection Network [MANAGER]{reset}\n") 
                 policy_sel_net = Trainer('manager', epsilon=args.epsilon_sel, epsilon_min=args.epsilon_min_sel, epsilon_decay=args.epsilon_decay_sel, 
                                         future_reward_discount = 0.5, force_cpu = args.force_cpu,
                                         load_snapshot = load_snapshot_, file_snapshot = snap_sel,
                                         K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch_sel)
-                print(f"{bold}nCreo Placement Network [WORKER]{reset}\n") 
+                print(f"{bold}creo Placement Network [WORKER]{reset}\n") 
                 policy_pla_net = Trainer('worker', epsilon=args.epsilon_pla, epsilon_min=args.epsilon_min_pla, epsilon_decay=args.epsilon_decay_pla, 
                                         future_reward_discount = 0.5, force_cpu = args.force_cpu,
                                         load_snapshot = load_snapshot_, file_snapshot = snap_pla,
@@ -296,7 +296,7 @@ def train(args):
 
             
             # Forward Selection Net
-            Q_values_sel, selected_obj, attention_weights = policy_sel_net.selection_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids) 
+            Q_values_sel, selected_obj, attention_weights = policy_sel_net.selection_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, policy_sel_net.epsilon) 
             Qvalue_sel = Q_values_sel[:, selected_obj]
             
             # Forwad Placement Net
@@ -329,7 +329,8 @@ def train(args):
             Qvisual_sel = policy_sel_net.visualize_Q_values(Q_values_sel, show=False, save=False, path='snapshots/selection_net/Q_values_pla/')
             
             print(f"{blue_light}\nChecking placement validity for the best {max_attempts} poses {reset}\n")
-            indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, Q_max, attempt = placement_net.check_placement_validity(env, Q_values_pla, orients, heightmap_box, selected_obj, max_attempts)
+            indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity(env, Q_values_pla, orients, heightmap_box, selected_obj)
+            #indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity_TANTATIVES(env, Q_values_pla, orients, heightmap_box, selected_obj, max_attempts)
             
             # Compute the objective function
             v_items_packed, _ = env.order_by_item_volume(env.packed)

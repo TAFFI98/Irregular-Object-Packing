@@ -73,21 +73,20 @@ class selection_net(nn.Module):
         super(selection_net, self).__init__()
         self.use_cuda = use_cuda
         self.K = K
-        self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
         
         # Initialize network trunks with ResNet pre-trained on ImageNet
         self.backbones = nn.ModuleList([self.initialize_backbone() for _ in range(self.K)])
-        self.optimizer = torch.optim.Adam(self.selection_placement_net.selection_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)        
         
         # Add a spatial pooling layer to pool the (7, 7) features
         self.spatial_pooling = nn.AvgPool2d(kernel_size=(7, 7))
         
-        self.final_selection_layers = final_conv_select_net(self.use_cuda, self.K, output_dim=1)
+        self.final_selection_layers = final_conv_select_net(self.use_cuda, self.K)
 
         # Freeze the parameters of the backbone networks
         for backbone in self.backbones:
             for param in backbone.parameters():
-                param.requires_grad = False		
+                param.requires_grad = False	
+
 
     def initialize_backbone(self):
         # Initialize ResNet backbone
@@ -280,11 +279,7 @@ class placement_net(nn.Module):
         super(placement_net, self).__init__()
         self.n_y = n_y
         self.use_cuda = use_cuda
-        
-        self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
-        self.optimizer = torch.optim.Adam(self.selection_placement_net.placement_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
 
-        
         # Define layers for U-Net architecture
         self.layer1_conv_block = conv_block(in_channel_unet, out_channel)
         self.layer2_Downsample = Downsample(out_channel)
@@ -437,7 +432,7 @@ class placement_net(nn.Module):
         print('Training loss: %f' % (loss))
         print('---------------------------------------') 
         # Clip gradients
-        torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(self.placement_net.parameters(), max_norm=1.0)
 
         # Inspect gradients
         # print('NETWORK GRAIDENTS:')
@@ -561,7 +556,7 @@ if __name__ == '__main__':
         input1_placement_rp_angles = torch.randn(n_rp,2)
         input2_placement_HM_rp = torch.randn(batch_size, K, n_rp, resolution, resolution, 2)
         
-    model = selection_placement_net(use_cuda = cuda, K = K, n_y = 4)
+    model = selection_net(use_cuda = cuda, K = K, n_y = 4)
     model.train()
 
 
