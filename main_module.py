@@ -468,10 +468,14 @@ def train(args):
                             Qvalues, a, b = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
                             Qvalue = Qvalues[rpy, x, y]
                             Q_values_list.append(Qvalue)
-                            
                             selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
-                            Qvalues_FUTURE, selected_obj_FUTURE, orients_FUTURE, attention_weights_FUTURE  = target_net.forward_network(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
-                            Qmax_FUTURE = target_net.ebstract_max(Qvalues_FUTURE)    
+
+                            if torch.any(selection_ids_FUTURE):
+                                Qvalues_FUTURE, selected_obj_FUTURE, orients_FUTURE, attention_weights_FUTURE  = target_net.forward_network(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+                                Qmax_FUTURE = target_net.ebstract_max(Qvalues_FUTURE)    
+                            else:
+                                Qmax_FUTURE = 0
+                            
                             Qtarget = reward + trainer.future_reward_discount * Qmax_FUTURE
                             Q_targets_list.append(Qtarget)
 
