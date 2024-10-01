@@ -50,7 +50,7 @@ def train(args):
                     chosen_train_method = 'stage_1'
                     if args.load_snapshot == True and snap!= None:
                         load_snapshot_ = True
-                        episode = int(snap.split('_')[-3])
+                        episode = int(snap.split('_')[-3]) + 1
                         epoch = int(snap.split('_')[-1].strip('.pth'))
                         sample_counter = 0
                         print('----------------------------------------')
@@ -73,7 +73,7 @@ def train(args):
                     chosen_train_method = 'stage_2'
                     if args.load_snapshot == True and snap!= None:
                         load_snapshot_ = True
-                        episode = int(snap.split('_')[-3])
+                        episode = int(snap.split('_')[-3]) + 1
                         epoch = int(snap.split('_')[-1].strip('.pth'))
                         sample_counter = 0                        
                         print('----------------------------------------')
@@ -332,7 +332,8 @@ def train(args):
             if len(unpacked) == 0:
                 print(f"{bold}{red}NO MORE ITEMS TO PACK --> END OF EPISODE{reset}") 
                 snapshot = args.snapshot
-                continue
+                break
+                # continue
             else:
                 print(f"{bold}There are still ", len(unpacked), f" items to be packed.{reset}")
             
@@ -343,7 +344,8 @@ def train(args):
             if is_box_full: 
                 print(f"{bold}{red}BOX IS FULL --> END OF EPISODE{reset}")
                 snapshot = args.snapshot
-                continue
+                break
+                # continue
             else:
                 print(f"{bold}Max box height not reached yet.{reset}")
 
