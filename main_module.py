@@ -300,7 +300,8 @@ def train(args):
             # Forward Selection Net
             Q_values_sel, Qvalue_sel, selected_obj, attention_weights = policy_sel_net.selection_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, policy_sel_net.epsilon) 
             #Qvalue_sel = Q_values_sel[:, selected_obj]
-            
+            print(Q_values_sel)
+
             # Forwad Placement Net
             Q_values_pla, orients = policy_pla_net.placement_net.forward(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights) 
             
@@ -338,153 +339,158 @@ def train(args):
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function(env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
             
+            sample_counter += 1
+
             if packed == False:
                 print(f"{bold}{red}OBJECT WITH ID: ", selected_obj, f" CANNOT BE PACKED{reset}")
                 print('---------------------------------------') 
             
             elif packed == True:                
                 # The first iteration does not compute the reward since there are no previous objective function
-                sample_counter += 1
-                if kk>= 1:
-                    # Compute reward and Q-target value
-                    print('Previous Objective function is: ', prev_obj)
-                    print('---------------------------------------') 
+                print(f"{bold}{green}OBJECT WITH ID: ", selected_obj, f"IS PACKED{reset}")
+                print('---------------------------------------') 
+            
+                
+            if kk>= 1:
+                # Compute reward and Q-target value
+                print('Previous Objective function is: ', prev_obj)
+                print('---------------------------------------') 
 
-                    # copia delle variabili per non creare confusione
-                    views_FUTURE = np.copy(views)                  # Copia della variabile views per lo stato futuro
-                    heightmaps_rp_FUTURE = np.copy(heightmaps_rp)  # Copia della variabile heightmaps_rp per lo stato futuro
+                # copia delle variabili per non creare confusione
+                views_FUTURE = np.copy(views)                  # Copia della variabile views per lo stato futuro
+                heightmaps_rp_FUTURE = np.copy(heightmaps_rp)  # Copia della variabile heightmaps_rp per lo stato futuro
 
-                    # Computing the inputs for the TARGET networks as tensors:
-                    input1_selection_HM_6views_FUTURE = torch.tensor(np.expand_dims(views_FUTURE[0:k_sort], axis=0))   # CHECK VIEVWS  
+                # Computing the inputs for the TARGET networks as tensors:
+                input1_selection_HM_6views_FUTURE = torch.tensor(np.expand_dims(views_FUTURE[0:k_sort], axis=0))   # CHECK VIEVWS  
+                
+                boxHM_FUTURE = torch.tensor(np.expand_dims(np.expand_dims(NewBoxHeightMap,axis=0), axis=0),requires_grad=True)          # (batch, 1, resolution, resolution) -- box heightmap
+                
+                _, bbox_order_FUTURE = env.order_by_bbox_volume(env.unpacked) #CHECK UNPACKED
+                input2_selection_ids_FUTURE = torch.tensor([float(item) for item in bbox_order_FUTURE[0:k_sort]] ,requires_grad=True)        # (k_sort) -- list of loaded ids
+                
+                input1_placement_rp_angles_FUTURE = torch.tensor(np.asarray(roll_pitch_angles),requires_grad=True)      #CHECK ROLL_PITCH_ANGLES 
+                
+                # If the remaining objects are less than k_sort, fill the input tensors with zeros
+                if len(bbox_order_FUTURE) < k_sort:
+                    for j in range(k_sort-len(bbox_order_FUTURE)):
+                        views_FUTURE = np.concatenate((views_FUTURE, np.zeros((1,views_FUTURE.shape[1],resolution,resolution))), axis=0)
+                        heightmaps_rp_FUTURE = np.concatenate((heightmaps_rp_FUTURE, np.zeros((1,heightmaps_rp_FUTURE.shape[1],resolution,resolution,heightmaps_rp_FUTURE.shape[-1]))), axis=0)
+                input2_placement_HM_rp_FUTURE = torch.tensor(np.expand_dims(heightmaps_rp_FUTURE[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles                        
+
+                #COMPUTE THE CURRENT REWARD
+                reward_pla = env.calculate_reward(packed, attempt, max_attempts)
+                
+                # Add the new experience to the replay buffer
+                state = [boxHM, input1_placement_rp_angles, input2_placement_HM_rp]
+                action = [attention_weights, indices_rpy, pixel_x, pixel_y]
+                current_reward = reward_pla
+                new_state = [input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE]
+                replay_buffer.add_experience(state, action, current_reward, new_state)
+
+                # Gradients computation and backpropagation step if the batch size is reached
+                # Extract a (random) bacth of experiences from the buffer 
+                experiences_batch = replay_buffer.sample_batch()
+
+                Q_values_list = []
+                Q_targets_list = []
+
+                for experience in experiences_batch:
+                    state, action, reward, new_state = experience
+                    att_weights, rpy, x, y = action
+                    box_HM, placement_rp_angles, placement_HM_rp = state                
+                    selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
+
+                    #QVALUE PLACEMENT
+                    Q_values_pla, orients = policy_pla_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights) 
+                    Qval_pla = Q_values_pla[rpy, x, y]
+
+                    Q_values_list.append(Qval_pla)
+                            
+                    #TARGET PLACEMENT
+                    # Q_values_sel_FUT, selected_obj_FUTURE, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
+                    # ???????? DA DOVE PRENDO attention_weights_FUTURE ?????????????????????????????????????????
+                    print('SONO QUI !!!!!!!!!!!!!!!!!!!!!!!!!!')
+                    Q_values_pla_FUTURE, orients_FUTURE = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
+                    Qmax_FUTURE = target_pla_net.ebstract_max(Q_values_pla_FUTURE)    
+                    Qtar_pla = reward + placement_net.future_reward_discount * Qmax_FUTURE
+
+                    Q_targets_list.append(Qtar_pla)
+
+                # Convert into tensor
+                Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
+                if placement_net.use_cuda:
+                    Q_values_tensor = Q_values_tensor.cuda().float()
+                    Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).cuda().float()
+                else:
+                    Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).float()
+                Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+
+                loss_value_pla = policy_pla_net.placement_net.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer.get_buffer_length(), replay_buffer.batch_size, sample_counter, sample_counter_threshold)
+
+                # Update epochs samples counters and save snapshots
+                if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:    
+                    epoch_pla += 1
+                    sample_counter = 0
                     
-                    boxHM_FUTURE = torch.tensor(np.expand_dims(np.expand_dims(NewBoxHeightMap,axis=0), axis=0),requires_grad=True)          # (batch, 1, resolution, resolution) -- box heightmap
+                    # save and plot losses and rewards
+                    policy_pla_net.save_and_plot_loss(epoch_pla, loss_value_pla.cpu().detach().numpy(), 'snapshots/placement_net/losses')
+                    policy_pla_net.save_and_plot_reward(epoch_pla, reward_pla, 'snapshots/placement_net/rewards')
+
+                    # AGGIORNO TARGET NET e salvo snapshot
+                    if epoch_pla % args.target_pla_freq == 0:
+                        target_pla_net.placement_net.load_state_dict(policy_pla_net.placement_net.state_dict())
+                        snapshot_target_pla = target_pla_net.save_snapshot('placement_net/target', max_snapshots=5) 
+                        print(f"{red}{bold}\nAggiorno Target placement Network {reset}\n")
+
+                    # save snapshots and remove old ones if more than max_snapshots
+                    if epoch_pla % 5 == 0: 
+                        snapshot = policy_pla_net.save_snapshot('placement_net/trainer', max_snapshots=5) 
+
+                reward_sel = env.Reward_function(prev_obj, current_obj)
+
+                # Forward TARGET selection net
+                Q_values_sel_FUTURE, _, _ , _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
+                Qmax_FUTURE = target_sel_net.ebstract_max(Q_values_sel_FUTURE)    
+                Q_target_sel = reward + policy_sel_net.future_reward_discount * Qmax_FUTURE
+
+                # Convert into tensor
+                """
+                Qval_tensor_sel = torch.tensor(Q_values_sel, requires_grad=True)
+                if trainer.use_cuda:
+                    Qval_tensor_sel = Qval_tensor_sel.cuda().float()
+                    Qtar_tensor_sel = torch.tensor(Q_target_sel, requires_grad=True).cuda().float()
+                else:
+                    Qtar_tensor_sel = torch.tensor(Q_target_sel, requires_grad=True).float()
+                Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel)
+                """
+
+                Qval_tensor_sel = torch.tensor(Q_values_sel, requires_grad=True)
+                if selection_net.use_cuda:
+                    Qtar_tensor_sel = torch.tensor(Q_target_sel).cuda().float()
+                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
+                else:
+                    Qtar_tensor_sel = torch.tensor(Q_target_sel).float()
+                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
+
+                # loss_value_sel = selection_net.backprop(Qtar_tensor_sel, Qval_tensor_sel, replay_buffer_length, replay_buffer.batch_size, sample_counter, sample_counter_threshold)
+                loss_value_sel = selection_net.backprop(Qtar_tensor_sel, Qval_tensor_sel, sample_counter, sample_counter_threshold)
+                
+                if sample_counter % sample_counter_threshold == 0:    
+                    epoch_sel += 1
+                    sample_counter = 0
                     
-                    _, bbox_order_FUTURE = env.order_by_bbox_volume(env.unpacked) #CHECK UNPACKED
-                    input2_selection_ids_FUTURE = torch.tensor([float(item) for item in bbox_order_FUTURE[0:k_sort]] ,requires_grad=True)        # (k_sort) -- list of loaded ids
-                    
-                    input1_placement_rp_angles_FUTURE = torch.tensor(np.asarray(roll_pitch_angles),requires_grad=True)      #CHECK ROLL_PITCH_ANGLES 
-                    
-                    # If the remaining objects are less than k_sort, fill the input tensors with zeros
-                    if len(bbox_order_FUTURE) < k_sort:
-                        for j in range(k_sort-len(bbox_order_FUTURE)):
-                            views_FUTURE = np.concatenate((views_FUTURE, np.zeros((1,views_FUTURE.shape[1],resolution,resolution))), axis=0)
-                            heightmaps_rp_FUTURE = np.concatenate((heightmaps_rp_FUTURE, np.zeros((1,heightmaps_rp_FUTURE.shape[1],resolution,resolution,heightmaps_rp_FUTURE.shape[-1]))), axis=0)
-                    input2_placement_HM_rp_FUTURE = torch.tensor(np.expand_dims(heightmaps_rp_FUTURE[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles                        
+                    # save and plot losses and rewards
+                    policy_sel_net.save_and_plot_loss(epoch_sel, loss_value_sel.cpu().detach().numpy(), 'snapshots/selection_net/losses')
+                    policy_sel_net.save_and_plot_reward(epoch_sel, reward_sel, 'snapshots/selection_net/rewards')
 
-                    #COMPUTE THE CURRENT REWARD
-                    reward_pla = env.calculate_reward(packed, attempt, max_attempts)
-                    
-                    # Add the new experience to the replay buffer
-                    state = [boxHM, input1_placement_rp_angles, input2_placement_HM_rp]
-                    action = [attention_weights, indices_rpy, pixel_x, pixel_y]
-                    current_reward = reward_pla
-                    new_state = [input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE]
-                    replay_buffer.add_experience(state, action, current_reward, new_state)
+                    if epoch_sel % args.target_sel_freq == 0:
+                        target_sel_net.selection_net.load_state_dict(policy_sel_net.selection_net.state_dict())
+                        snapshot_target_sel = target_sel_net.save_snapshot('selection_net/target', max_snapshots=5) 
+                        print(f"{red}{bold}\nAggiorno Target selection Network {reset}\n")
 
-                    # Gradients computation and backpropagation step if the batch size is reached
-                    # Extract a (random) bacth of experiences from the buffer 
-                    experiences_batch = replay_buffer.sample_batch()
-
-                    Q_values_list = []
-                    Q_targets_list = []
-
-                    for experience in experiences_batch:
-                        state, action, reward, new_state = experience
-                        att_weights, rpy, x, y = action
-                        box_HM, placement_rp_angles, placement_HM_rp = state                
-                        selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
-
-                        #QVALUE PLACEMENT
-                        Q_values_pla, orients = policy_pla_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights) 
-                        Qval_pla = Q_values_pla[rpy, x, y]
-
-                        Q_values_list.append(Qval_pla)
-                                
-                        #TARGET PLACEMENT
-                        # Q_values_sel_FUT, selected_obj_FUTURE, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
-                        # ???????? DA DOVE PRENDO attention_weights_FUTURE ?????????????????????????????????????????
-                        print('SONO QUI !!!!!!!!!!!!!!!!!!!!!!!!!!')
-                        Q_values_pla_FUTURE, orients_FUTURE = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
-                        Qmax_FUTURE = target_pla_net.ebstract_max(Q_values_pla_FUTURE)    
-                        Qtar_pla = reward + placement_net.future_reward_discount * Qmax_FUTURE
-
-                        Q_targets_list.append(Qtar_pla)
-
-                    # Convert into tensor
-                    Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
-                    if placement_net.use_cuda:
-                        Q_values_tensor = Q_values_tensor.cuda().float()
-                        Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).cuda().float()
-                    else:
-                        Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).float()
-                    Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
-
-                    loss_value_pla = policy_pla_net.placement_net.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer.get_buffer_length(), replay_buffer.batch_size, sample_counter, sample_counter_threshold)
-
-                    # Update epochs samples counters and save snapshots
-                    if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:    
-                        epoch_pla += 1
-                        sample_counter = 0
-                        
-                        # save and plot losses and rewards
-                        policy_pla_net.save_and_plot_loss(epoch_pla, loss_value_pla.cpu().detach().numpy(), 'snapshots/placement_net/losses')
-                        policy_pla_net.save_and_plot_reward(epoch_pla, reward_pla, 'snapshots/placement_net/rewards')
-
-                        # AGGIORNO TARGET NET e salvo snapshot
-                        if epoch_pla % args.target_pla_freq == 0:
-                            target_pla_net.placement_net.load_state_dict(policy_pla_net.placement_net.state_dict())
-                            snapshot_target_pla = target_pla_net.save_snapshot('placement_net/target', max_snapshots=5) 
-                            print(f"{red}{bold}\nAggiorno Target placement Network {reset}\n")
-
-                        # save snapshots and remove old ones if more than max_snapshots
-                        if epoch_pla % 5 == 0: 
-                            snapshot = policy_pla_net.save_snapshot('placement_net/trainer', max_snapshots=5) 
-
-                    reward_sel = env.Reward_function(prev_obj, current_obj)
-
-                    # Forward TARGET selection net
-                    Q_values_sel_FUTURE, _, _ , _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
-                    Qmax_FUTURE = target_sel_net.ebstract_max(Q_values_sel_FUTURE)    
-                    Q_target_sel = reward + policy_sel_net.future_reward_discount * Qmax_FUTURE
-
-                    # Convert into tensor
-                    """
-                    Qval_tensor_sel = torch.tensor(Q_values_sel, requires_grad=True)
-                    if trainer.use_cuda:
-                        Qval_tensor_sel = Qval_tensor_sel.cuda().float()
-                        Qtar_tensor_sel = torch.tensor(Q_target_sel, requires_grad=True).cuda().float()
-                    else:
-                        Qtar_tensor_sel = torch.tensor(Q_target_sel, requires_grad=True).float()
-                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel)
-                    """
-
-                    Qval_tensor_sel = torch.tensor(Q_values_sel, requires_grad=True)
-                    if selection_net.use_cuda:
-                        Qtar_tensor_sel = torch.tensor(Q_target_sel).cuda().float()
-                        Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
-                    else:
-                        Qtar_tensor_sel = torch.tensor(Q_target_sel).float()
-                        Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
-
-                    # loss_value_sel = selection_net.backprop(Qtar_tensor_sel, Qval_tensor_sel, replay_buffer_length, replay_buffer.batch_size, sample_counter, sample_counter_threshold)
-                    loss_value_sel = selection_net.backprop(Qtar_tensor_sel, Qval_tensor_sel, sample_counter, sample_counter_threshold)
-                    
-                    if sample_counter % sample_counter_threshold == 0:    
-                        epoch_sel += 1
-                        sample_counter = 0
-                        
-                        # save and plot losses and rewards
-                        policy_sel_net.save_and_plot_loss(epoch_sel, loss_value_sel.cpu().detach().numpy(), 'snapshots/selection_net/losses')
-                        policy_sel_net.save_and_plot_reward(epoch_sel, reward_sel, 'snapshots/selection_net/rewards')
-
-                        if epoch_sel % args.target_sel_freq == 0:
-                            target_sel_net.selection_net.load_state_dict(policy_sel_net.selection_net.state_dict())
-                            snapshot_target_sel = target_sel_net.save_snapshot('selection_net/target', max_snapshots=5) 
-                            print(f"{red}{bold}\nAggiorno Target selection Network {reset}\n")
-
-                        # save snapshots and remove old ones if more than max_snapshots
-                        if epoch_sel % 5 == 0: 
-                            snapshot = policy_sel_net.save_snapshot('selection_net/trainer', max_snapshots=5) 
+                    # save snapshots and remove old ones if more than max_snapshots
+                    if epoch_sel % 5 == 0: 
+                        snapshot = policy_sel_net.save_snapshot('selection_net/trainer', max_snapshots=5) 
 
 
             # Updating the box heightmap and the objective function
@@ -522,8 +528,8 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=5) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
+    parser.add_argument('--k_max', action='store', default=3) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=3) # min number of objects to load
     parser.add_argument('--k_sort', dest='k_sort', action='store', default=3) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box

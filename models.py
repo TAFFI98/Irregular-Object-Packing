@@ -86,8 +86,7 @@ class selection_net(nn.Module):
         for backbone in self.backbones:
             for param in backbone.parameters():
                 param.requires_grad = False	
-
-
+    
     def initialize_backbone(self):
         # Initialize ResNet backbone
         backbone = torchvision.models.resnet18(weights=torchvision.models.resnet.ResNet18_Weights.DEFAULT)
@@ -152,7 +151,8 @@ class selection_net(nn.Module):
         while torch.max(attention_weights).item() == 1:
             alpha = alpha - 100
             attention_weights = torch.softmax(alpha * Q_values, dim =1)
-
+        
+        """
         # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
         if np.random.rand() < epsilon:
             # Scegli un'azione casuale
@@ -162,10 +162,9 @@ class selection_net(nn.Module):
             # Scegli l'azione con il massimo Q-value
             print(f'{red_light}Sto eseguendo EXPLOITATION{reset}')
             selected_obj = int(torch.argmax(Q_values, dim=1).detach().cpu().numpy())
-            
-        
-        """
-        PRENDE OGGETTO DA attention_weights
+        """  
+
+        #PRENDE OGGETTO DA attention_weights
         # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
         if np.random.rand() < epsilon:
             # Scegli un'azione casuale
@@ -174,8 +173,8 @@ class selection_net(nn.Module):
         else:
             # Scegli l'azione con il massimo Q-value
             selected_obj = int(torch.argmax(Q_values).cpu().numpy())
-            selected_obj = np.argmax(attention_weights)
-        """
+            selected_obj = torch.argmax(attention_weights)
+        
         selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
         selected_obj_pybullet = int(item_ids.clone().cpu().detach()[selected_obj]) 
         
@@ -236,19 +235,22 @@ class selection_net(nn.Module):
     
     
 class final_conv_select_net(nn.Module):
-    def __init__(self, use_cuda, K, output_dim=1):
+    def __init__(self, use_cuda, K):
         super(final_conv_select_net, self).__init__()
 
         self.num_classes = K
 
         # Define fully connected layers for each branch
-        self.fc_layers = nn.ModuleList([self.create_fc_layers(output_dim) for _ in range(K)])
+        self.fc_layers = nn.ModuleList([self.create_fc_layers() for _ in range(K)])
+        
+        # Sigmoid activation function
+        self.sigmoid = nn.Sigmoid()
 
         # Move model to GPU if use_cuda is True
         if use_cuda:
             self.cuda()
-
-    def create_fc_layers(self, output_dim):
+    
+    def create_fc_layers(self):
         return nn.Sequential(
             nn.Linear(512, 256),
             nn.ReLU(),
@@ -259,10 +261,11 @@ class final_conv_select_net(nn.Module):
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(64, output_dim)
+            nn.Linear(64, 1)
         )
-
+    
     def forward(self, x):
+
         outputs = []
 
         # Loop through each branch
@@ -275,6 +278,9 @@ class final_conv_select_net(nn.Module):
 
         # Concatenate the outputs along the class dimension
         concatenated_outputs = torch.cat(outputs, dim=1)  # (batch, K)
+
+        # Apply sigmoid activation
+        concatenated_outputs = self.sigmoid(concatenated_outputs) # (batch, K)
 
         return concatenated_outputs
     
