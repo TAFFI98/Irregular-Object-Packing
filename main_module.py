@@ -71,7 +71,7 @@ def train(args):
                     chosen_train_method = 'stage_2'
                     if args.load_snapshot == True and snap!= None:
                         load_snapshot_ = True
-                        episode = int(snap.split('_')[-3])
+                        episode = int(snap.split('_')[-3]) + 1
                         epoch = int(snap.split('_')[-1].strip('.pth'))
                         sample_counter = 0                        
                         print('----------------------------------------')
