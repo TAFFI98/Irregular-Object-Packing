@@ -438,10 +438,10 @@ def train(args):
                             heightmaps_rp_FUTURE = np.concatenate((heightmaps_rp_FUTURE, np.zeros((1,heightmaps_rp_FUTURE.shape[1],resolution,resolution,heightmaps_rp_FUTURE.shape[-1]))), axis=0)
                         input2_placement_HM_rp_FUTURE = torch.tensor(np.expand_dims(heightmaps_rp_FUTURE[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
 
-                        Q_values_FUTURE, selected_obj_FUTURE, orients_FUTURE = target_net.forward_network( input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
                         # FINE NUOVO CODICE
 
                         if input2_selection_ids_FUTURE:
+                            Q_values_FUTURE, selected_obj_FUTURE, orients_FUTURE = target_net.forward_network( input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
                             Q_max_FUTURE = target_net.ebstract_max(Q_values_FUTURE)
                         else:
                             Q_max_FUTURE = 0
