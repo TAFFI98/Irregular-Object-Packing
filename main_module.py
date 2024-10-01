@@ -53,7 +53,7 @@ def train(args):
                 # First time the main loop is executed
                 if args.load_snapshot == True and snap_sel!= None and snap_pla!= None:
                     load_snapshot_ = True
-                    episode = int(snap_sel.split('_')[-3])
+                    episode = int(snap_sel.split('_')[-3]) +1 
                     epoch_sel = int(snap_sel.split('_')[-1].strip('.pth'))
                     epoch_pla = int(snap_pla.split('_')[-1].strip('.pth') )
                     sample_counter = 0                        
@@ -254,7 +254,8 @@ def train(args):
                 print(f"{bold}{red}NO MORE ITEMS TO PACK --> END OF EPISODE{reset}") 
                 snapshot_sel = args.snapshot_sel
                 snapshot_pla = args.snapshot_pla
-                continue
+                break
+                # continue
             else:
                 print(f"{bold}There are still ", len(unpacked), f" items to be packed.{reset}")
             
@@ -266,7 +267,8 @@ def train(args):
                 print(f"{bold}{red}BOX IS FULL --> END OF EPISODE{reset}")
                 snapshot_sel = args.snapshot_sel
                 snapshot_pla = args.snapshot_pla
-                continue
+                break
+                # continue
             else:
                 print(f"{bold}Max box height not reached yet.{reset}")
 
