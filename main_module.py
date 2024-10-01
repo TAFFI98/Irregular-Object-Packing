@@ -439,11 +439,26 @@ def train(args):
                         input2_placement_HM_rp_FUTURE = torch.tensor(np.expand_dims(heightmaps_rp_FUTURE[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
 
                         Q_values_FUTURE, selected_obj_FUTURE, orients_FUTURE = target_net.forward_network( input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
-                        Q_max_FUTURE = target_net.ebstract_max(Q_values_FUTURE)
                         # FINE NUOVO CODICE
 
-                        current_reward, Q_target = trainer.get_Qtarget_value(Q_max_FUTURE, prev_obj, current_obj, env)
+                        if input2_selection_ids_FUTURE:
+                            Q_max_FUTURE = target_net.ebstract_max(Q_values_FUTURE)
+                        else:
+                            Q_max_FUTURE = 0
+
+                        ## current_reward, Q_target = trainer.get_Qtarget_value(Q_max_FUTURE, prev_obj, current_obj, env)
                         
+                        # Compute current reward 
+                        print(f"{blue_light}\nComputing Reward fuction {reset}\n")
+                        current_reward = env.Reward_function(prev_obj, current_obj)
+
+                        print('Current reward: %f' % (current_reward))
+                        print('Future reward: %f' % (Q_max_FUTURE))
+                        
+                        Q_target = current_reward + trainer.future_reward_discount * Q_max_FUTURE
+                        print('Expected reward: %f ' % (Q_target))
+                        print('---------------------------------------') 
+
                         # Count the number of samples for the batch
                         sample_counter += 1
                         print(f'{red}\nRecorded ', sample_counter,'/',batch_size, f' samples for 1 batch of training{reset}')
