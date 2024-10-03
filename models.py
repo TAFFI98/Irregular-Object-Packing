@@ -174,8 +174,8 @@ class selection_net(nn.Module):
             # Scegli l'azione con il massimo Q-value
             selected_obj = int(torch.argmax(Q_values).cpu().numpy())
             selected_obj = torch.argmax(attention_weights)
+            # selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
         
-        selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
         selected_obj_pybullet = int(item_ids.clone().cpu().detach()[selected_obj]) 
         
         Qvalue = Q_values[:, selected_obj]

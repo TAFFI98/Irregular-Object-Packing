@@ -33,7 +33,10 @@ def train(args):
     
     # Initialize experience replay buffer 
     replay_buffer = ExperienceReplayBuffer(args.replay_buffer_capacity, args.replay_batch_size)
-    sample_counter_threshold = args.sample_counter_threshold
+    counter_threshold_sel = args.sample_counter_threshold_selection_net
+    
+    # COMMENTO 
+    counter_threshold_pla = args.sample_counter_threshold_placement_net
 
     # Define max number of attempts to pack an item:
     max_attempts = 5 #change the value also in Trainer: check_placement_validity
@@ -332,25 +335,25 @@ def train(args):
             Qvisual_sel = policy_sel_net.visualize_Q_values(Q_values_sel, show=False, save=False, path='snapshots/selection_net/Q_values_pla/')
             
             print(f"{blue_light}\nChecking placement validity for the best {max_attempts} poses {reset}\n")
-            indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity(env, Q_values_pla, orients, heightmap_box, selected_obj)
-            #indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity_TANTATIVES(env, Q_values_pla, orients, heightmap_box, selected_obj, max_attempts)
+            #indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity(env, Q_values_pla, orients, heightmap_box, selected_obj)
+            indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity_TANTATIVES(env, Q_values_pla, orients, heightmap_box, selected_obj, max_attempts)
             
             # Compute the objective function
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function(env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
             
-            sample_counter += 1
+            sample_counter_sel += 1
+            sample_counter_pla += 1
 
             if packed == False:
                 print(f"{bold}{red}OBJECT WITH ID: ", selected_obj, f" CANNOT BE PACKED{reset}")
                 print('---------------------------------------') 
             
             elif packed == True:                
-                # The first iteration does not compute the reward since there are no previous objective function
                 print(f"{bold}{green}OBJECT WITH ID: ", selected_obj, f"IS PACKED{reset}")
                 print('---------------------------------------') 
             
-                
+            # The first iteration does not compute the reward since there are no previous objective function
             if kk>= 1:
                 # Compute reward and Q-target value
                 print('Previous Objective function is: ', prev_obj)
@@ -401,18 +404,16 @@ def train(args):
                     selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
 
                     #QVALUE PLACEMENT
-                    Q_values_pla, orients = policy_pla_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights) 
+                    Q_values_pla, _ = policy_pla_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights) 
                     Qval_pla = Q_values_pla[rpy, x, y]
 
                     Q_values_list.append(Qval_pla)
-                            
-                    #TARGET PLACEMENT
-                    # Q_values_sel_FUT, selected_obj_FUTURE, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
-                    # ???????? DA DOVE PRENDO attention_weights_FUTURE ?????????????????????????????????????????
-                    print('SONO QUI !!!!!!!!!!!!!!!!!!!!!!!!!!')
-                    Q_values_pla_FUTURE, orients_FUTURE = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
+
+                    #QTARGET PLACEMENT
+                    _, _, _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, policy_sel_net.epsilon) 
+                    Q_values_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
                     Qmax_FUTURE = target_pla_net.ebstract_max(Q_values_pla_FUTURE)    
-                    Qtar_pla = reward + placement_net.future_reward_discount * Qmax_FUTURE
+                    Qtar_pla = reward + policy_pla_net.future_reward_discount * Qmax_FUTURE
 
                     Q_targets_list.append(Qtar_pla)
 
@@ -428,9 +429,9 @@ def train(args):
                 loss_value_pla = policy_pla_net.placement_net.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer.get_buffer_length(), replay_buffer.batch_size, sample_counter, sample_counter_threshold)
 
                 # Update epochs samples counters and save snapshots
-                if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:    
+                if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter_pla % counter_threshold_pla == 0:    
                     epoch_pla += 1
-                    sample_counter = 0
+                    sample_counter_pla = 0
                     
                     # save and plot losses and rewards
                     policy_pla_net.save_and_plot_loss(epoch_pla, loss_value_pla.cpu().detach().numpy(), 'snapshots/placement_net/losses')
@@ -440,11 +441,19 @@ def train(args):
                     if epoch_pla % args.target_pla_freq == 0:
                         target_pla_net.placement_net.load_state_dict(policy_pla_net.placement_net.state_dict())
                         snapshot_target_pla = target_pla_net.save_snapshot('placement_net/target', max_snapshots=5) 
-                        print(f"{red}{bold}\nAggiorno Target placement Network {reset}\n")
+                        print(f"{red}{bold}\nAggiorno Target Placement Network {reset}\n")
 
                     # save snapshots and remove old ones if more than max_snapshots
                     if epoch_pla % 5 == 0: 
                         snapshot = policy_pla_net.save_snapshot('placement_net/trainer', max_snapshots=5) 
+
+                
+
+
+
+
+
+
 
                 reward_sel = env.Reward_function(prev_obj, current_obj)
 
@@ -472,12 +481,11 @@ def train(args):
                     Qtar_tensor_sel = torch.tensor(Q_target_sel).float()
                     Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
 
-                # loss_value_sel = selection_net.backprop(Qtar_tensor_sel, Qval_tensor_sel, replay_buffer_length, replay_buffer.batch_size, sample_counter, sample_counter_threshold)
-                loss_value_sel = selection_net.backprop(Qtar_tensor_sel, Qval_tensor_sel, sample_counter, sample_counter_threshold)
+                loss_value_sel = selection_net.backprop(Qtar_tensor_sel, Qval_tensor_sel, sample_counter, counter_threshold_sel)
                 
-                if sample_counter % sample_counter_threshold == 0:    
+                if sample_counter_sel % counter_threshold_sel == 0:    
                     epoch_sel += 1
-                    sample_counter = 0
+                    sample_counter_sel = 0
                     
                     # save and plot losses and rewards
                     policy_sel_net.save_and_plot_loss(epoch_sel, loss_value_sel.cpu().detach().numpy(), 'snapshots/selection_net/losses')
@@ -491,6 +499,9 @@ def train(args):
                     # save snapshots and remove old ones if more than max_snapshots
                     if epoch_sel % 5 == 0: 
                         snapshot = policy_sel_net.save_snapshot('selection_net/trainer', max_snapshots=5) 
+
+
+
 
 
             # Updating the box heightmap and the objective function
