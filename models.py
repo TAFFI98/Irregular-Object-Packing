@@ -182,57 +182,6 @@ class selection_net(nn.Module):
 
         return Q_values, Qvalue, selected_obj_pybullet, attention_weights
     
-    # Compute labels and backpropagate
-    def backprop(self, Q_targets_tensor, Q_values_tensor, counter, counter_treshold):            
-
-        loss = self.criterion(Q_values_tensor, Q_targets_tensor)
-        loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-        print(f"{blue_light}\nComputing loss and gradients on Selection Network{reset}")
-        print('Training loss: %f' % (loss))
-        print('---------------------------------------') 
-        # Clip gradients
-        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
-
-        # Inspect gradients
-        # print('SELECTION NETWORK GRAIDENTS:')
-        # for name, param in self.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
-        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
-        #     else:
-        #         print(f"Layer: {name} | No gradients computed")
-
-        # Check for NaN gradients
-        for name, param in self.named_parameters():           
-            if param.grad is not None:
-                if torch.isnan(param.grad).any():
-                    raise ValueError("Gradient of {name} is NaN!")
-
-        # for name, param in self.named_parameters():
-        #     if param.requires_grad and param.grad is not None:
-        #         plt.figure(figsize=(10, 5))
-        #         plt.title(f'Gradients for {name}')
-        #         plt.hist(param.grad.cpu().numpy().flatten(), bins=50, log=True)
-        #         plt.xlabel('Gradient Value')
-        #         plt.ylabel('Count')
-        #         plt.show()
-
-        # if optimizer_step == True:
-        if counter % counter_treshold == 0: 
-        # if self.epoch % 4 == 0:             
-            print(f"{blue_light}\nBackpropagating loss on Selection Network (manager network){reset}\n")
-            print('---------------------------------------') 
-            self.optimizer.step()
-            print('---------------------------------------')           
-            print(f"{purple}Selection Network trained on ", self.epoch+1, f"EPOCHS{reset}")    # ???????????????????????????????????????????????????????????????????????
-            print('---------------------------------------')  
-            self.optimizer.zero_grad()
-
-        if self.use_cuda:
-            torch.cuda.empty_cache()
-
-        return loss
-    
     
 class final_conv_select_net(nn.Module):
     def __init__(self, use_cuda, K):
@@ -435,55 +384,6 @@ class placement_net(nn.Module):
         input_unet = torch.cat([rotated_hm,input2], dim=-1)
 
         return input_unet.float()
-    
-        # Compute labels and backpropagate
-    def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter, counter_treshold):            
-
-        loss = self.criterion(Q_values_tensor, Q_targets_tensor)
-        loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-        print(f"{blue_light}\nComputing loss and gradients on Placement Network{reset}")
-        print('Training loss: %f' % (loss))
-        print('---------------------------------------') 
-        # Clip gradients
-        torch.nn.utils.clip_grad_norm_(self.placement_net.parameters(), max_norm=1.0)
-
-        # Inspect gradients
-        # print('NETWORK GRAIDENTS:')
-        # for name, param in self.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
-        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
-        #     else:
-        #         print(f"Layer: {name} | No gradients computed")
-
-        # Check for NaN gradients
-        for name, param in self.named_parameters():
-            if param.grad is not None:
-                if torch.isnan(param.grad).any():
-                    raise ValueError("Gradient of {name} is NaN!")
-
-        # for name, param in self.named_parameters():
-        #     if param.requires_grad and param.grad is not None:
-        #         plt.figure(figsize=(10, 5))
-        #         plt.title(f'Gradients for {name}')
-        #         plt.hist(param.grad.cpu().numpy().flatten(), bins=50, log=True)
-        #         plt.xlabel('Gradient Value')
-        #         plt.ylabel('Count')
-        #         plt.show()
-
-        # if optimizer_step == True:
-        if replay_buffer_length >= replay_batch_size and counter % counter_treshold == 0:
-            print(f"{blue_light}\nBackpropagating loss on Placement Network (worker network){reset}\n")
-            self.optimizer.step()
-            print(f"{purple}Placement Network trained on ", self.epoch+1, f"EPOCHS{reset}")
-            print('---------------------------------------')  
-            self.optimizer.zero_grad()
-            self.epoch = self.epoch+1
-
-        if self.use_cuda:
-            torch.cuda.empty_cache()
-
-        return loss
     
            
 class Downsample(nn.Module):
