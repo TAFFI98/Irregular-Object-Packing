@@ -440,7 +440,7 @@ def train(args):
 
                         # FINE NUOVO CODICE
 
-                        if input2_selection_ids_FUTURE:
+                        if torch.any(input2_selection_ids_FUTURE):
                             Q_values_FUTURE, selected_obj_FUTURE, orients_FUTURE = target_net.forward_network( input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
                             Q_max_FUTURE = target_net.ebstract_max(Q_values_FUTURE)
                         else:
@@ -960,27 +960,27 @@ if __name__ == '__main__':
     parser.add_argument('--obj_folder_path',  action='store', default='objects/easy_setting/') # path to the folder containing the objects .csv file
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
-    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=10) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=10) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=10) # number of objects to consider for sorting
+    parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
+    parser.add_argument('--k_max', action='store', default=3) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=3) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=3) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
-    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/trainer/network_episode_1788_epoch_215.pth') # path to the  network snapshot
-    parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/targetNet/network_episode_0_epoch_3.pth') # path to the target network snapshot
-    parser.add_argument('--new_episodes', action='store', default=10) # number of episodes
-    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
-    parser.add_argument('--batch_size', dest='batch_size', action='store', default=30) # Batch size for training
+    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_7_epoch_11.pth') # path to the  network snapshot
+    parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/network_episode_7_epoch_11.pth') # path to the target network snapshot
+    parser.add_argument('--new_episodes', action='store', default=5) # number of episodes
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=True) # Load snapshot 
+    parser.add_argument('--batch_size', dest='batch_size', action='store', default=1) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
     
     # epsilon-greedy parameters: 
     parser.add_argument('--epsilon', action='store', default=0.9)          # Valore iniziale per epsilon
     parser.add_argument('--epsilon_min', action='store', default=0.05)     # Valore minimo per epsilon
-    parser.add_argument('--epsilon_decay', action='store', default=0.995)   # Fattore di decrescita per epsilon
+    parser.add_argument('--epsilon_decay', action='store', default=0.9975)   # Fattore di decrescita per epsilon
 
     # frequenza di aggiornamento della target network
-    parser.add_argument('--targetNN_freq', action='store', default=10)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+    parser.add_argument('--targetNN_freq', action='store', default=3)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     args = parser.parse_args()
     

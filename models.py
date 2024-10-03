@@ -63,7 +63,7 @@ class selection_placement_net(nn.Module):
 
         # Compute Q-values using the placement network
         Q_values, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
-        return Q_values, selected_obj, orients, attention_weights
+        return Q_values, selected_obj, orients
     
 class selection_net(nn.Module):
     def __init__(self, use_cuda, K, method): 

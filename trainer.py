@@ -151,13 +151,13 @@ class Trainer(object):
             torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
 
             # Inspect gradients
-            # print('NETWORK GRAIDENTS:')
-            # for name, param in self.selection_placement_net.named_parameters():
-            #     if param.grad is not None:
-            #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
-            #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
-            #     else:
-            #         print(f"Layer: {name} | No gradients computed")
+            print('NETWORK GRAIDENTS:')
+            for name, param in self.selection_placement_net.named_parameters():
+                if param.grad is not None:
+                    print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+                    print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
+                else:
+                    print(f"Layer: {name} | No gradients computed")
 
             # Check for NaN gradients
             for name, param in self.selection_placement_net.named_parameters():
@@ -182,7 +182,7 @@ class Trainer(object):
                 self.optimizer_worker.zero_grad()
                 self.epoch = self.epoch+1
 
-                if self.epoch % 4 == 0 and self.method == 'stage_2':
+                if self.epoch % 2 == 0 and self.method == 'stage_2':
                     print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
                     print('---------------------------------------') 
                     self.optimizer_manager.step()
@@ -598,17 +598,6 @@ class Trainer(object):
         # Epsilon-greedy choice
         if random.random() < self.epsilon:
             # Exploration: choose a random index
-            i = random.randint(0, Q_values_flat.size(0) - 1)
-        else:
-            # Exploitation: choose the index with the maximum Q-value
-            _, i = torch.max(Q_values_flat, 0)
-            i = i.item()  # Convert tensor to scalar integer
-        index = torch.unravel_index(i, Q_size)
-        
-
-        # Epsilon-greedy choice
-        if random.random() < self.epsilon:
-            # Exploration: choose a random index
             random_index = random.randint(0, Q_values_flat.size(0) - 1)
             selected_index = torch.unravel_index(random_index, Q_size)
         else:
@@ -625,7 +614,7 @@ class Trainer(object):
         else:
           # Exploitation: select the index with the maximum Q value
           print(f'{red_light}Sto eseguendo EXPLOITATION!{reset}')
-          _, random_index = torch.max(Q_values_flat, 0)
+          _, random_index = torch.argmax(Q_values_flat, 0)
 
         # Unravel the index to get the 3D coordinates
         index_tensor = torch.tensor(random_index)
