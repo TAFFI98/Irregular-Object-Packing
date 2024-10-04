@@ -164,23 +164,7 @@ class selection_net(nn.Module):
             selected_obj = int(torch.argmax(Q_values, dim=1).detach().cpu().numpy())
         """  
 
-        #PRENDE OGGETTO DA attention_weights
-        # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
-        if np.random.rand() < epsilon:
-            # Scegli un'azione casuale
-            print(f'{red_light}Sto eseguendo EXPLORATION!{reset}') 
-            selected_obj = random.randint(0, self.K - 1)
-        else:
-            # Scegli l'azione con il massimo Q-value
-            # selected_obj = int(torch.argmax(Q_values).cpu().numpy())
-            selected_obj = torch.argmax(attention_weights)
-            # selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
-        
-        selected_obj_pybullet = int(item_ids.clone().cpu().detach()[selected_obj]) 
-        
-        Qvalue = Q_values[:, selected_obj]
-
-        return Q_values, Qvalue, selected_obj_pybullet, attention_weights
+        return Q_values, attention_weights
     
     
 class final_conv_select_net(nn.Module):

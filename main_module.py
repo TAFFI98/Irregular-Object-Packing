@@ -8,7 +8,6 @@ import time
 import pybullet as p
 import gc
 from trainer import Trainer
-from tester import Tester
 from models import placement_net
 from models import selection_net
 from env import Env
@@ -53,7 +52,7 @@ def train(args):
         # Initialize episode and epochs counters
         
         # First time the main loop is executed:
-        if 'trainer' not in locals():
+        if 'policy_sel_net' not in locals():
             if args.load_snapshot == True and snap_sel!= None and snap_pla!= None:
                 load_snapshot_ = True
                 episode = int(snap_sel.split('_')[-3]) +1                       # aggiunto +1 così conteggio degli episodi è consistente
@@ -302,8 +301,24 @@ def train(args):
             print('---------------------------------------')           
             
             # Forward Selection Net
-            Q_values_sel, Qvalue_sel, selected_obj, attention_weights = policy_sel_net.selection_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, policy_sel_net.epsilon) 
-            # Qvalue_sel = Q_values_sel[:, selected_obj]
+            Q_values_sel, attention_weights = policy_sel_net.selection_net.forward( input1_selection_HM_6views, boxHM, input2_selection_ids, policy_sel_net.epsilon) 
+            
+            #PRENDE OGGETTO DA attention_weights
+            # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
+            if np.random.rand() < policy_sel_net.epsilon:
+                # Scegli un'azione casuale
+                print(f'{red_light}Sto eseguendo EXPLORATION!{reset}') 
+                sel_obj = random.randint(0, len(env.unpacked)-1)
+            else:
+                # Scegli l'azione con il massimo Q-value
+                # selected_obj = int(torch.argmax(Q_values).cpu().numpy())
+                # selected_obj = torch.argmax(attention_weights)
+                print(f'{red_light}Sto eseguendo EXPLOITATION!{reset}') 
+                sel_obj = int(torch.argmax(attention_weights).cpu().numpy())
+            
+            selected_obj = int(input2_selection_ids.clone().cpu().detach()[sel_obj]) 
+            Qvalue_sel = Q_values_sel[:, sel_obj]
+
             print('Qvalues DELLA SELECTION NET:')
             print(Q_values_sel)
 
@@ -357,7 +372,6 @@ def train(args):
             
             # The first iteration does not compute the reward since there are no previous objective function
             if kk>= 1:
-                print('SONO QUIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
                 # Compute reward and Q-target value
                 print('Previous Objective function is: ', prev_obj)
                 print('---------------------------------------') 
@@ -370,7 +384,7 @@ def train(args):
                 input1_selection_HM_6views_FUTURE = torch.tensor(np.expand_dims(views_FUTURE[0:k_sort], axis=0))   # CHECK VIEVWS  
                 
                 boxHM_FUTURE = torch.tensor(np.expand_dims(np.expand_dims(NewBoxHeightMap,axis=0), axis=0),requires_grad=True)          # (batch, 1, resolution, resolution) -- box heightmap
-                        
+                
                 _, bbox_order_FUTURE = env.order_by_bbox_volume(env.unpacked) #CHECK UNPACKED
                 input2_selection_ids_FUTURE = torch.tensor([float(item) for item in bbox_order_FUTURE[0:k_sort]] ,requires_grad=True)        # (k_sort) -- list of loaded ids
                 
@@ -409,11 +423,10 @@ def train(args):
                     Q_values_pla, _ = policy_pla_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights) 
                     Qval_pla = Q_values_pla[rpy, x, y]
 
-                    # CALCOLO Qtarget della PLACEMENT net
                     # verifica se episodio prelevato coincide con un TERMINAL STATE
                     if torch.any(selection_ids_FUTURE):
                         # forward pass attraverso la TARGET Selection Net
-                        _, _, _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, -1) 
+                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, -1) 
                         # forward pass attraverso la TARGET Placeemnt Net
                         Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
                         Qmax_FUTURE = target_pla_net.ebstract_max(Qvalues_pla_FUTURE)    
@@ -449,33 +462,35 @@ def train(args):
                     # AGGIORNO TARGET NET e salvo snapshot
                     if epoch_pla % args.target_pla_freq == 0:
                         target_pla_net.placement_net.load_state_dict(policy_pla_net.placement_net.state_dict())
-                        snapshot_target_pla = target_pla_net.save_snapshot('placement_net/target', max_snapshots=5) 
+                        snapshot_target_pla = target_pla_net.save_snapshot('worker', 'placement_net/target', max_snapshots=5) 
                         print(f"{red}{bold}\nAggiorno Target Placement Network {reset}\n")
 
                     # save snapshots and remove old ones if more than max_snapshots
                     if epoch_pla % 5 == 0: 
-                        snapshot = policy_pla_net.save_snapshot('placement_net/trainer', max_snapshots=5) 
+                        snapshot = policy_pla_net.save_snapshot('worker','placement_net/trainer', max_snapshots=5) 
 
                 
                 # Calcolo Reward per il Manager (proviene dall'environment)
                 reward_sel = env.Reward_function(prev_obj, current_obj)
-
+                print('SONO QUIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+                # CALCOLO Qtarget della PLACEMENT net
+                    
                 # Forward TARGET selection net
                 if torch.any(selection_ids_FUTURE):
-                    Q_values_sel_FUTURE, _, _ , _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, -1) 
+                    Q_values_sel_FUTURE, _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, -1) 
                     Qmax_FUTURE = target_sel_net.ebstract_max(Q_values_sel_FUTURE)    
                 else:
                     Qmax_FUTURE = 0
                 Q_target_sel = reward + policy_sel_net.future_reward_discount * Qmax_FUTURE
 
                 # Convert into tensor
-                Qval_tensor_sel = torch.tensor(Q_values_sel, requires_grad=True)
+                Qval_tensor_sel = torch.tensor(Qvalue_sel, requires_grad=True)
                 if policy_sel_net.use_cuda:
                     Qtar_tensor_sel = torch.tensor(Q_target_sel).cuda().float()
-                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
+                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel)
                 else:
                     Qtar_tensor_sel = torch.tensor(Q_target_sel).float()
-                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
+                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel)
 
                 # calcolo della loss ed esegui bacpropagation
                 loss_value_sel = policy_sel_net.backprop_sel(Qtar_tensor_sel, Qval_tensor_sel, policy_pla_net.epoch, epoch_threshold_sel)
@@ -490,12 +505,12 @@ def train(args):
                     # Aggiorno TARGET selection net
                     if epoch_sel % args.target_sel_freq == 0:
                         target_sel_net.selection_net.load_state_dict(policy_sel_net.selection_net.state_dict())
-                        snapshot_target_sel = target_sel_net.save_snapshot('selection_net/target', max_snapshots=5) 
+                        snapshot_target_sel = target_sel_net.save_snapshot('manager','selection_net/target', max_snapshots=5) 
                         print(f"{red}{bold}\nAggiorno Target selection Network {reset}\n")
 
                     # save snapshots and remove old ones if more than max_snapshots
                     if epoch_sel % 5 == 0: 
-                        snapshot = policy_sel_net.save_snapshot('selection_net/trainer', max_snapshots=5) 
+                        snapshot = policy_sel_net.save_snapshot('manager', 'selection_net/trainer', max_snapshots=5) 
 
 
             # Updating the box heightmap and the objective function
@@ -512,12 +527,12 @@ def train(args):
         policy_sel_net.update_epsilon_exponential()
         policy_pla_net.update_epsilon_exponential()
 
-    snapshot_sel = policy_sel_net.save_snapshot('selection_net/trainer', max_snapshots=5) 
-    snapshot_pla = policy_pla_net.save_snapshot('placement_net/trainer', max_snapshots=5) 
+    snapshot_sel = policy_sel_net.save_snapshot('manager', 'selection_net/trainer', max_snapshots=5) 
+    snapshot_pla = policy_pla_net.save_snapshot('worker', 'placement_net/trainer', max_snapshots=5) 
     print(f"{red}{bold}salvo Policy Networks {reset}\n")
 
-    snapshot_target_pla = target_sel_net.save_snapshot('selection_net/target', max_snapshots=5) 
-    snapshot_target_sel = target_pla_net.save_snapshot('placement_net/target', max_snapshots=5) 
+    snapshot_target_pla = target_sel_net.save_snapshot('manager', 'selection_net/target', max_snapshots=5) 
+    snapshot_target_sel = target_pla_net.save_snapshot('worker', 'placement_net/target', max_snapshots=5) 
     print(f"{red}{bold}salvo Target Networks {reset}\n")
 
     print('End of training')

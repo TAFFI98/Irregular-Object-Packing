@@ -28,7 +28,7 @@ import random
 
 
 class Trainer(object):
-    def __init__(self, type, epsilon, epsilon_min, epsilon_decay, future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
+    def __init__(self, type_net, epsilon, epsilon_min, epsilon_decay, future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
         self.n_y = n_y           # number of discrete yaw orientations
         self.K = K               # total number of items to be packed
         self.epoch = epoch       # epoch counter
@@ -51,7 +51,7 @@ class Trainer(object):
             print(f"{bold}CUDA is *NOT* detected. Running with only CPU.{reset}")
             self.use_cuda = False
 
-        if type == 'manager':
+        if type_net == 'manager':
             # INITIALIZE NETWORK
             self.selection_net = selection_net(use_cuda = self.use_cuda, K = self.K)
                 
@@ -77,7 +77,7 @@ class Trainer(object):
             self.iteration = 0
             
 
-        elif type == 'worker':
+        elif type_net == 'worker':
             # INITIALIZE NETWORK
             self.placement_net = placement_net(n_y = self.n_y, in_channel_unet = 3, out_channel = 1, use_cuda = self.use_cuda)
                 
@@ -106,8 +106,7 @@ class Trainer(object):
         print('---------------------------------------------------')
         print(f"{bold}TRAINER INITIALIZED.{reset}")
         print('---------------------------------------------------')
-    
-    """
+ 
     def forward_network(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
         '''
         input1_selection_HM_6views: input heightmaps of the 6 views of the objects
@@ -125,8 +124,7 @@ class Trainer(object):
         selected_obj_pybullet = int(input2_selection_ids.clone().cpu().detach()[selected_obj]) 
         orients = orients.cpu().detach().numpy()
         return  Q_values , selected_obj_pybullet, orients, attention_weights
-    """
-
+    
     # Compute target Q_target
     def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):
         '''
@@ -710,10 +708,10 @@ class Trainer(object):
         # If not packed after all attempts, return failure
         packed = False
         Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
-        #return indices_rpy, pixel_x, pixel_y, False, 0, packed, attempt+1
-
+        # return indices_rpy, pixel_x, pixel_y, False, 0, packed, attempt+1
         return indices_rpy, pixel_x, pixel_y, BoxHeightMap, 0, packed, attempt+1
 
+        
 
     def update_epsilon_linear(self):
         '''
@@ -741,7 +739,7 @@ class Trainer(object):
         print(f'{blue_light}Nuovo valore di epsilon: {self.epsilon}{reset}')    
 
 
-    def save_snapshot(self, folder_name, max_snapshots=5):
+    def save_snapshot(self, type_net, folder_name, max_snapshots=5):
         """
         Save snapshots of the trained models.
         """
@@ -750,7 +748,11 @@ class Trainer(object):
         os.makedirs(snapshot_dir, exist_ok=True)
 
         snapshot_file = os.path.join(snapshot_dir, f'network_episode_{self.episode}_epoch_{self.epoch}.pth')
-        torch.save(self.selection_placement_net.state_dict(), snapshot_file)
+        
+        if type_net == 'manager':
+          torch.save(self.selection_net.state_dict(), snapshot_file)
+        else:
+          torch.save(self.placement_net.state_dict(), snapshot_file)
 
         # Get a list of all files in the directory
         files = glob.glob(os.path.join(snapshot_dir, '*'))
