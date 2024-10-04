@@ -93,14 +93,14 @@ def train(args):
                         print('----------------------------------------')
                 # Initialize trainer (POLICY NET)
                 trainer = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, 
-                            method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                            method = chosen_train_method, future_reward_discount = 0.5900267, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap,
                             K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch)
                 print(f"{bold}\nCreo Policy Network{reset}\n") 
                 
                 # DEFINISCO TARGET NETWORK PER IL CALCOLO DI Q-target
                 target_net = Trainer(epsilon=args.epsilon, epsilon_min=args.epsilon_min, epsilon_decay=args.epsilon_decay, 
-                            method = chosen_train_method, future_reward_discount = 0.5, force_cpu = args.force_cpu,
+                            method = chosen_train_method, future_reward_discount = 0.5900267, force_cpu = args.force_cpu,
                             load_snapshot = load_snapshot_, file_snapshot = snap_targetNN,
                             K = k_sort, n_y = args.n_yaw, episode = 0, epoch = 0)
                 print(f"{bold}\nCreo Target Network{reset}\n")    
@@ -478,11 +478,6 @@ def train(args):
                             
                             Qtarget = reward + trainer.future_reward_discount * Qmax_FUTURE
                             Q_targets_list.append(Qtarget)
-
-                            del(selected_obj_FUTURE)
-                            del(orients_FUTURE)
-                            del(attention_weights_FUTURE)
-                            gc.collect()
 
                         # Convert into tensor
                         Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
@@ -993,34 +988,34 @@ if __name__ == '__main__':
 
     # --------------- Setup options ---------------
     parser.add_argument('--obj_folder_path',  action='store', default='objects/easy_setting/') # path to the folder containing the objects .csv file
-    parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
+    parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=5) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=5) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=4) # number of objects to consider for sorting
+    parser.add_argument('--k_max', action='store', default=11) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=11) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=10) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
-    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/trainer/network_episode_4_epoch_4.pth') # path to the  network snapshot
-    parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/targetNet/network_episode_0_epoch_3.pth') # path to the target network snapshot
+    parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/trainer/network_episode_2003_epoch_981.pth') # path to the  network snapshot
+    parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/targetNet/network_episode_0_epoch_0.pth') # path to the target network snapshot
     parser.add_argument('--new_episodes', action='store', default=3) # number of episodes
-    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=True) # Load snapshot 
     # parser.add_argument('--batch_size', dest='batch_size', action='store', default=70) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
     
     # epsilon-greedy parameters: 
-    parser.add_argument('--epsilon', action='store', default=0.9)           # Valore iniziale per epsilon
+    parser.add_argument('--epsilon', action='store', default=0.1)           # Valore iniziale per epsilon
     parser.add_argument('--epsilon_min', action='store', default=0.05)      # Valore minimo per epsilon
     parser.add_argument('--epsilon_decay', action='store', default=0.9975)   # Fattore di decrescita per epsilon
 
     # frequenza di aggiornamento della target network
-    parser.add_argument('--targetNN_freq', action='store', default=3)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+    parser.add_argument('--targetNN_freq', action='store', default=12)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     # experience replay
-    parser.add_argument('--replay_buffer_capacity', action='store', default=3)  #size of the experience replay buffer 
-    parser.add_argument('--replay_batch_size', action='store', default=1)        #size of the batch ebstracted from experience replay buffer
-    parser.add_argument('--sample_counter_threshold', action='store', default=1)        #
+    parser.add_argument('--replay_buffer_capacity', action='store', default=218)  #size of the experience replay buffer 
+    parser.add_argument('--replay_batch_size', action='store', default=28)        #size of the batch ebstracted from experience replay buffer
+    parser.add_argument('--sample_counter_threshold', action='store', default=11)        #
 
 
     args = parser.parse_args()

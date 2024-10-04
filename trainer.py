@@ -32,8 +32,8 @@ class Trainer(object):
         self.K = K               # total number of items to be packed
         self.epoch = epoch       # epoch counter
         self.episode = episode   # episode counter
-        self.lr = 1e-3           # learning rate 1e-3 for stage 1 and 1e-4 for stage 2
-        self.weight_decay = 2e-5 # weight decay
+        self.lr = 0.000307332192           # learning rate 1e-3 for stage 1 and 1e-4 for stage 2
+        self.weight_decay = 7.19e-5 # weight decay
 
         self.epsilon = epsilon              # Valore iniziale per epsilon
         self.epsilon_min = epsilon_min      # Valore minimo per epsilon
