@@ -55,7 +55,7 @@ def train(args):
                         sample_counter = 0
                         print('----------------------------------------')
                         print('----------------------------------------')
-                        print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
+                        print(f"{purple}Continuing training after", episode-1, f" episodes already simulated{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
                     else:
@@ -78,7 +78,7 @@ def train(args):
                         sample_counter = 0                        
                         print('----------------------------------------')
                         print('----------------------------------------')
-                        print(f"{purple}Continuing training after", episode, f" episodes already simulated{reset}")                
+                        print(f"{purple}Continuing training after", episode-1, f" episodes already simulated{reset}")                
                         print('----------------------------------------')
                         print('----------------------------------------')
                     else:
