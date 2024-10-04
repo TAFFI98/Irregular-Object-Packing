@@ -106,7 +106,8 @@ class Trainer(object):
         print('---------------------------------------------------')
         print(f"{bold}TRAINER INITIALIZED.{reset}")
         print('---------------------------------------------------')
- 
+    
+    """
     def forward_network(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
         '''
         input1_selection_HM_6views: input heightmaps of the 6 views of the objects
@@ -124,7 +125,8 @@ class Trainer(object):
         selected_obj_pybullet = int(input2_selection_ids.clone().cpu().detach()[selected_obj]) 
         orients = orients.cpu().detach().numpy()
         return  Q_values , selected_obj_pybullet, orients, attention_weights
-    
+    """
+
     # Compute target Q_target
     def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):
         '''
@@ -708,9 +710,9 @@ class Trainer(object):
         # If not packed after all attempts, return failure
         packed = False
         Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
-        # return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed, attempt+1
+        #return indices_rpy, pixel_x, pixel_y, False, 0, packed, attempt+1
 
-        return indices_rpy, pixel_x, pixel_y, False, 0, packed, attempt+1
+        return indices_rpy, pixel_x, pixel_y, BoxHeightMap, 0, packed, attempt+1
 
 
     def update_epsilon_linear(self):

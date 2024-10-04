@@ -172,7 +172,7 @@ class selection_net(nn.Module):
             selected_obj = random.randint(0, self.K - 1)
         else:
             # Scegli l'azione con il massimo Q-value
-            selected_obj = int(torch.argmax(Q_values).cpu().numpy())
+            # selected_obj = int(torch.argmax(Q_values).cpu().numpy())
             selected_obj = torch.argmax(attention_weights)
             # selected_obj = int(torch.argmax(attention_weights).cpu().numpy())
         

@@ -370,7 +370,7 @@ def train(args):
                 input1_selection_HM_6views_FUTURE = torch.tensor(np.expand_dims(views_FUTURE[0:k_sort], axis=0))   # CHECK VIEVWS  
                 
                 boxHM_FUTURE = torch.tensor(np.expand_dims(np.expand_dims(NewBoxHeightMap,axis=0), axis=0),requires_grad=True)          # (batch, 1, resolution, resolution) -- box heightmap
-                
+                        
                 _, bbox_order_FUTURE = env.order_by_bbox_volume(env.unpacked) #CHECK UNPACKED
                 input2_selection_ids_FUTURE = torch.tensor([float(item) for item in bbox_order_FUTURE[0:k_sort]] ,requires_grad=True)        # (k_sort) -- list of loaded ids
                 
@@ -413,7 +413,7 @@ def train(args):
                     # verifica se episodio prelevato coincide con un TERMINAL STATE
                     if torch.any(selection_ids_FUTURE):
                         # forward pass attraverso la TARGET Selection Net
-                        _, _, _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, policy_sel_net.epsilon) 
+                        _, _, _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, -1) 
                         # forward pass attraverso la TARGET Placeemnt Net
                         Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
                         Qmax_FUTURE = target_pla_net.ebstract_max(Qvalues_pla_FUTURE)    
@@ -462,7 +462,7 @@ def train(args):
 
                 # Forward TARGET selection net
                 if torch.any(selection_ids_FUTURE):
-                    Q_values_sel_FUTURE, _, _ , _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
+                    Q_values_sel_FUTURE, _, _ , _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, -1) 
                     Qmax_FUTURE = target_sel_net.ebstract_max(Q_values_sel_FUTURE)    
                 else:
                     Qmax_FUTURE = 0
@@ -470,7 +470,7 @@ def train(args):
 
                 # Convert into tensor
                 Qval_tensor_sel = torch.tensor(Q_values_sel, requires_grad=True)
-                if selection_net.use_cuda:
+                if policy_sel_net.use_cuda:
                     Qtar_tensor_sel = torch.tensor(Q_target_sel).cuda().float()
                     Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
                 else:
@@ -478,7 +478,7 @@ def train(args):
                     Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel[:, selected_obj])
 
                 # calcolo della loss ed esegui bacpropagation
-                loss_value_sel = policy_sel_net.selection_net.backprop_sel(Qtar_tensor_sel, Qval_tensor_sel, policy_pla_net.epoch, epoch_threshold_sel)
+                loss_value_sel = policy_sel_net.backprop_sel(Qtar_tensor_sel, Qval_tensor_sel, policy_pla_net.epoch, epoch_threshold_sel)
                 
                 if policy_pla_net.epoch % epoch_threshold_sel == 0:    
                     epoch_sel += 1
