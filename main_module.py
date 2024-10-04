@@ -343,7 +343,7 @@ def train(args):
             
             # Compute the objective function
             v_items_packed, _ = env.order_by_item_volume(env.packed)
-            current_obj = env.Objective_function(env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
+            current_obj = env.Objective_function(packed, env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
             
             sample_counter += 1
 
@@ -357,6 +357,7 @@ def train(args):
             
             # The first iteration does not compute the reward since there are no previous objective function
             if kk>= 1:
+                print('SONO QUIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
                 # Compute reward and Q-target value
                 print('Previous Objective function is: ', prev_obj)
                 print('---------------------------------------') 
@@ -426,7 +427,7 @@ def train(args):
 
                 # Convert lists into tensors
                 Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
-                if placement_net.use_cuda:
+                if policy_pla_net.use_cuda:
                     Q_values_tensor = Q_values_tensor.cuda().float()
                     Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).cuda().float()
                 else:

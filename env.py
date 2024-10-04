@@ -861,7 +861,7 @@ class Env(object):
             print(f'{purple_light}>Piramidality is: ', total_volume/used_volume, f'{reset}')
             return total_volume/used_volume
     
-    def Objective_function(self, item_in_box, item_volumes, box_hm, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25):
+    def Objective_function(self, packed, item_in_box, item_volumes, box_hm, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25):
         '''
         item_in_box: list of integers representing the ids of the items in the box
         item_volumes: list of floats representing the volumes of the items
@@ -874,7 +874,10 @@ class Env(object):
         
         Function to compute the objective function value based on the compactness, pyramidality, and stability of the packing
         '''
-        obj  = alpha * self.Compactness(item_in_box, item_volumes, box_hm) + beta * self.Pyramidality(item_in_box, item_volumes, box_hm) + gamma * stability_of_packing
+        if packed:
+            obj  = alpha * self.Compactness(item_in_box, item_volumes, box_hm) + beta * self.Pyramidality(item_in_box, item_volumes, box_hm) + gamma * stability_of_packing
+        else:
+            obj = 0
         print(f'---------------------------------------') 
         print(f"{blue_light}\n5. Computing the objective function {reset}")
         print('Objective function is: ', obj)

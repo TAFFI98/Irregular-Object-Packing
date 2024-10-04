@@ -18,12 +18,14 @@ from torch.autograd import Variable
 from models import  placement_net
 from models import  selection_net
 from scipy import ndimage
+#from env import Env
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import gc
 from experience_replay import ExperienceReplayBuffer
 import random
+
 
 class Trainer(object):
     def __init__(self, type, epsilon, epsilon_min, epsilon_decay, future_reward_discount=0.5, force_cpu = False, file_snapshot = None, load_snapshot = False ,K = 20, n_y = 4, epoch = 0, episode = 0):
@@ -604,12 +606,11 @@ class Trainer(object):
         if random.random() < self.epsilon:
             # Exploration: choose a random index
             exploration = True
-            print(f"Exploring: Random action chosen at attempt {attempt + 1}")
+            print(f'{bold}Sto eseguendo EXPLORATION!{reset}')
         else:
             # Exploitation: choose the best Q_value
+            print(f'{bold}Sto eseguendo EXPLOITATION!{reset}')
             exploration = False
-            print(f"Exploiting: Best action chosen at attempt {attempt + 1}")
-
 
         # Attempt to pack the object with a maximum number of attempts
         for attempt in range(max_attempts):
@@ -617,12 +618,18 @@ class Trainer(object):
             # Epsilon-greedy strategy: Explore (choose random index) or exploit (choose best Q_value)
             if exploration:
                 # Exploration: choose a random index
-                chosen_index = random.randint(0, len(Q_values_flat) - 1)
+                # chosen_index = random.randint(0, len(Q_values_flat) - 1)
+                chosen_index = torch.randint(0, Q_values_flat.size(0), (1,)).item()
+                print(f"Exploring: Random action chosen at attempt {attempt + 1}")
             else:
                 # Exploitation: choose the best Q_value
                 chosen_index = sorted_indices[attempt]
+                print(f"Exploiting: Best action chosen at attempt {attempt + 1}")
 
-            index = torch.unravel_index(chosen_index, Q_size)
+            print('ECCO INDICE!!!!!!!!!!!!!!!!!')
+            print(chosen_index)
+            index_tensor = torch.tensor(chosen_index)
+            index = torch.unravel_index(index_tensor, Q_size)
             indices_rpy = int(index[0])
             pixel_x = int(index[1])
             pixel_y = int(index[2])
@@ -696,12 +703,14 @@ class Trainer(object):
                     env.removeAABB(limits_obj_line_ids)
                     packed = True
                     Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
-                    return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed, float(Q_max.cpu()), attempt+1
+                    return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed, attempt+1
 
         # If not packed after all attempts, return failure
         packed = False
         Q_max = Q_values[indices_rpy, pixel_x, pixel_y]
-        return indices_rpy, pixel_x, pixel_y, False, 0, packed, float(Q_max.cpu()), attempt+1
+        # return indices_rpy, pixel_x, pixel_y, BoxHeightMap, stability_of_packing, packed, attempt+1
+
+        return indices_rpy, pixel_x, pixel_y, False, 0, packed, attempt+1
 
 
     def update_epsilon_linear(self):
