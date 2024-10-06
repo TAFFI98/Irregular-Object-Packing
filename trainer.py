@@ -169,13 +169,13 @@ class Trainer(object):
         torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
 
         # Inspect gradients
-        # print('NETWORK GRAIDENTS:')
-        # for name, param in self.selection_placement_net.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
-        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
-        #     else:
-        #         print(f"Layer: {name} | No gradients computed")
+        print('NETWORK GRAIDENTS:')
+        for name, param in self.selection_placement_net.named_parameters():
+            if param.grad is not None:
+                print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+                print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
+            else:
+                print(f"Layer: {name} | No gradients computed")
 
         # Check for NaN gradients
         for name, param in self.selection_placement_net.named_parameters():
@@ -201,7 +201,7 @@ class Trainer(object):
             self.optimizer_worker.zero_grad()
             self.epoch = self.epoch+1
 
-            if self.epoch % 4 == 0 and self.method == 'stage_2':
+            if self.epoch % 1 == 0 and self.method == 'stage_2':
                 print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
                 print('---------------------------------------') 
                 self.optimizer_manager.step()
