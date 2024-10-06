@@ -301,19 +301,19 @@ def train(args):
             print('---------------------------------------')           
             
             # Forward Selection Net
-            Q_values_sel, attention_weights = policy_sel_net.selection_net.forward( input1_selection_HM_6views, boxHM, input2_selection_ids, policy_sel_net.epsilon) 
+            Q_values_sel, attention_weights = policy_sel_net.selection_net.forward( input1_selection_HM_6views, boxHM, input2_selection_ids) 
             
             #PRENDE OGGETTO DA attention_weights
             # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
             if np.random.rand() < policy_sel_net.epsilon:
                 # Scegli un'azione casuale
-                print(f'{red_light}Sto eseguendo EXPLORATION!{reset}') 
+                print(f'{bold}Sto eseguendo EXPLORATION!{reset}') 
                 sel_obj = random.randint(0, len(env.unpacked)-1)
             else:
                 # Scegli l'azione con il massimo Q-value
                 # selected_obj = int(torch.argmax(Q_values).cpu().numpy())
                 # selected_obj = torch.argmax(attention_weights)
-                print(f'{red_light}Sto eseguendo EXPLOITATION!{reset}') 
+                print(f'{bold}Sto eseguendo EXPLOITATION!{reset}') 
                 sel_obj = int(torch.argmax(attention_weights).cpu().numpy())
             
             selected_obj = int(input2_selection_ids.clone().cpu().detach()[sel_obj]) 
@@ -426,7 +426,7 @@ def train(args):
                     # verifica se episodio prelevato coincide con un TERMINAL STATE
                     if torch.any(selection_ids_FUTURE):
                         # forward pass attraverso la TARGET Selection Net
-                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, -1) 
+                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
                         # forward pass attraverso la TARGET Placeemnt Net
                         Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
                         Qmax_FUTURE = target_pla_net.ebstract_max(Qvalues_pla_FUTURE)    
@@ -477,7 +477,7 @@ def train(args):
                     
                 # Forward TARGET selection net
                 if torch.any(selection_ids_FUTURE):
-                    Q_values_sel_FUTURE, _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, -1) 
+                    Q_values_sel_FUTURE, _  = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
                     Qmax_FUTURE = target_sel_net.ebstract_max(Q_values_sel_FUTURE)    
                 else:
                     Qmax_FUTURE = 0

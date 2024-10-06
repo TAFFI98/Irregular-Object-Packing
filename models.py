@@ -107,7 +107,7 @@ class selection_net(nn.Module):
 
         return backbone
 
-    def forward(self, input_1, input_2, item_ids, epsilon):
+    def forward(self, input_1, input_2, item_ids):
         if self.use_cuda:
                 input_1 = input_1.cuda()
                 input_2 = input_2.cuda()
