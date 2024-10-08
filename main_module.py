@@ -466,8 +466,7 @@ def train(args):
                             box_HM, placement_rp_angles, placement_HM_rp = state
                             Qvalues, a, b = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
                             Qvalue = Qvalues[rpy, x, y]
-                            Q_values_list.append(Qvalue)
-                            #Q_values_list.append(float(Qvalue.item()))
+                            
 
                             selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
                             if torch.any(selection_ids_FUTURE):
@@ -477,7 +476,18 @@ def train(args):
                                 Qmax_FUTURE = 0
                             
                             Qtarget = reward + trainer.future_reward_discount * Qmax_FUTURE
-                            Q_targets_list.append(torch.tensor(Qtarget))
+                            if trainer.use_cuda:
+                                Qtar_tensor = torch.tensor(Qtarget).cuda().float()
+                                Qtar_tensor = Qtar_tensor.expand_as(Qvalue)
+                            else:
+                                Qtar_tensor = torch.tensor(Qtarget).float()
+                                Qtar_tensor = Qtar_tensor.expand_as(Qvalue)
+                            
+                            Q_targets_list.append(Qtar_tensor)
+                            
+                            Q_values_list.append(Qvalue)
+                            #Q_values_list.append(float(Qvalue.item()))
+
                             # Q_targets_list.append(torch.tensor(Qtarget, requires_grad=True))
                             #Q_targets_list.append(torch.tensor(Qtarget, dtype=torch.float32, requires_grad=True))
                             # Q_targets_list.append(Qtarget)
@@ -489,15 +499,18 @@ def train(args):
                         # Convert into tensors      
                         if trainer.use_cuda:
                             # Q_values_tensor = torch.stack(Q_values_list).cuda().requires_grad_()
-                            Q_targets_tensor = torch.stack(Q_targets_list).float().cuda()
+                            # Q_targets_tensor = torch.stack(Q_targets_list).float().cuda()
+                            Q_targets_tensor = torch.stack(Q_targets_list).cuda()
                             Q_values_tensor = torch.stack(Q_values_list).cuda()
                             # Q_values_tensor = Q_values_list
                             # Q_targets_tensor = torch.tensor(Q_targets_list).float().cuda()
                         else:
                             # Q_values_tensor = torch.stack(Q_values_list).requires_grad_()
-                            Q_targets_tensor = torch.stack(Q_targets_list).float()
+                            # Q_targets_tensor = torch.stack(Q_targets_list).float()
+                            Q_targets_tensor = torch.stack(Q_targets_list)
                             Q_values_tensor = torch.stack(Q_values_list)
                             # Q_values_tensor = Q_values_list
+                            # Q_targets_tensor = Q_targets_list
                             # Q_targets_tensor = torch.tensor(Q_targets_list).float()
 
                         print(Q_values_tensor)
@@ -539,12 +552,15 @@ def train(args):
 
                         tensor(0.1741, grad_fn=<SelectBackward0>)
                         tensor(0.1127)
+                        
                         """
 
                         # Verifica che i tensori abbiano le dimensioni giuste
                         assert Q_values_tensor.size() == Q_targets_tensor.size()
                         # Verifica che i tensori abbiano lo stesso tipo di dato
                         assert Q_values_tensor.dtype == Q_targets_tensor.dtype
+                        
+                        
 
                         replay_buffer_length = replay_buffer.get_buffer_length()
 
