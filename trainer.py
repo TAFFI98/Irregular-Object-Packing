@@ -127,7 +127,7 @@ class Trainer(object):
     def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter, counter_threshold):              
 
         loss = self.criterion(Q_values_tensor, Q_targets_tensor)
-                
+        # self.optimizer.zero_grad()    
         loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
 
         # Detach tensors (crucial for experience replay)

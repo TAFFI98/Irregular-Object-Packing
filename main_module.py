@@ -475,13 +475,17 @@ def train(args):
                                 Qmax_FUTURE = 0
                             
                             Qtarget = reward + trainer.future_reward_discount * Qmax_FUTURE
+                            
+                            """
                             if trainer.use_cuda:
                                 Qtar_tensor = torch.tensor(Qtarget).cuda().float()
                                 Qtar_tensor = Qtar_tensor.expand_as(Qvalue)
                             else:
                                 Qtar_tensor = torch.tensor(Qtarget).float()
                                 Qtar_tensor = Qtar_tensor.expand_as(Qvalue)
-                            
+                            """
+                            Qtar_tensor = torch.tensor(Qtarget).float()
+                            Qtar_tensor = Qtar_tensor.expand_as(Qvalue)
                             Q_targets_list.append(Qtar_tensor)
                             # Q_targets_list.append(torch.tensor(Qtarget, requires_grad=True))
                             #Q_targets_list.append(torch.tensor(Qtarget, dtype=torch.float32, requires_grad=True))
@@ -496,20 +500,25 @@ def train(args):
 
                         # Convert into tensors      
                         if trainer.use_cuda:
-                            # Q_values_tensor = torch.stack(Q_values_list).cuda().requires_grad_()
-                            # Q_targets_tensor = torch.stack(Q_targets_list).float().cuda()
-                            Q_targets_tensor = torch.stack(Q_targets_list).cuda()
-                            Q_values_tensor = torch.stack(Q_values_list).cuda()
-                            # Q_values_tensor = Q_values_list
-                            # Q_targets_tensor = torch.tensor(Q_targets_list).float().cuda()
+                            ##Q_values_tensor = torch.stack(Q_values_list).cuda().requires_grad_()
+                            ##Q_targets_tensor = torch.stack(Q_targets_list).float().cuda()
+                            ##Q_values_tensor = Q_values_list
+                            ##Q_targets_tensor = torch.tensor(Q_targets_list).float().cuda()
+                            # Q_targets_tensor = torch.stack(Q_targets_list).cuda()
+                            # Q_values_tensor = torch.stack(Q_values_list).cuda()
+                            # Concatena tutti i Q-values e Q-targets
+                            Q_values_tensor = torch.cat(Q_values_list).cuda()
+                            Q_targets_tensor = torch.cat(Q_targets_list).cuda()
                         else:
-                            # Q_values_tensor = torch.stack(Q_values_list).requires_grad_()
-                            # Q_targets_tensor = torch.stack(Q_targets_list).float()
-                            Q_targets_tensor = torch.stack(Q_targets_list)
-                            Q_values_tensor = torch.stack(Q_values_list)
-                            # Q_values_tensor = Q_values_list
-                            # Q_targets_tensor = Q_targets_list
-                            # Q_targets_tensor = torch.tensor(Q_targets_list).float()
+                            ##Q_values_tensor = torch.stack(Q_values_list).requires_grad_()
+                            ##Q_targets_tensor = torch.stack(Q_targets_list).float()
+                            ##Q_values_tensor = Q_values_list
+                            ##Q_targets_tensor = Q_targets_list
+                            ##Q_targets_tensor = torch.tensor(Q_targets_list).float()
+                            # Q_targets_tensor = torch.stack(Q_targets_list)
+                            # Q_values_tensor = torch.stack(Q_values_list)
+                            Q_values_tensor = torch.cat(Q_values_list)
+                            Q_targets_tensor = torch.cat(Q_targets_list)
 
                         print(Q_values_tensor)
                         print(Q_targets_tensor)
