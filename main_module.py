@@ -536,6 +536,9 @@ def train(args):
                         
                         #if not Q_values_tensor.requires_grad:
                         #    Q_values_tensor.requires_grad_()  # Imposta requires_grad=True
+
+                        tensor(0.1741, grad_fn=<SelectBackward0>)
+                        tensor(0.1127)
                         """
 
                         # Verifica che i tensori abbiano le dimensioni giuste
@@ -556,8 +559,6 @@ def train(args):
                             del(Q_targets_tensor)        # Elimina il riferimento al tensore Q_targets_tensor                               
                             
                             gc.collect() 
-                            
-
 
                         # Update epochs samples counters and save snapshots
                         if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:           
