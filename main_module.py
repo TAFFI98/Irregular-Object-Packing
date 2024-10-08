@@ -430,7 +430,6 @@ def train(args):
                         
                         # _, bbox_order_FUTURE = env.order_by_bbox_volume(env.unpacked) #CHECK UNPACKED
                         input2_selection_ids_FUTURE = torch.tensor([float(item) for item in bbox_order_FUTURE[0:k_sort]] ,requires_grad=True)        # (k_sort) -- list of loaded ids
-                        print(input2_selection_ids_FUTURE)
 
                         input1_placement_rp_angles_FUTURE = torch.tensor(np.asarray(roll_pitch_angles),requires_grad=True)      #CHECK ROLL_PITCH_ANGLES 
 
@@ -468,41 +467,112 @@ def train(args):
                             Qvalues, a, b = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
                             Qvalue = Qvalues[rpy, x, y]
                             Q_values_list.append(Qvalue)
-                            selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
+                            #Q_values_list.append(float(Qvalue.item()))
 
+                            selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
                             if torch.any(selection_ids_FUTURE):
-                                Qvalues_FUTURE, selected_obj_FUTURE, orients_FUTURE, attention_weights_FUTURE  = target_net.forward_network(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+                                Qvalues_FUTURE, _, _, _  = target_net.forward_network(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
                                 Qmax_FUTURE = target_net.ebstract_max(Qvalues_FUTURE)    
                             else:
                                 Qmax_FUTURE = 0
                             
                             Qtarget = reward + trainer.future_reward_discount * Qmax_FUTURE
-                            Q_targets_list.append(Qtarget)
+                            Q_targets_list.append(torch.tensor(Qtarget))
+                            # Q_targets_list.append(torch.tensor(Qtarget, requires_grad=True))
+                            #Q_targets_list.append(torch.tensor(Qtarget, dtype=torch.float32, requires_grad=True))
+                            # Q_targets_list.append(Qtarget)
+                        
 
-                        # Convert into tensor
-                        Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
+                        print(Q_values_list)
+                        print(Q_targets_list)
+
+                        # Convert into tensors      
                         if trainer.use_cuda:
-                            Q_values_tensor = Q_values_tensor.cuda().float()
-                            Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).cuda().float()
+                            # Q_values_tensor = torch.stack(Q_values_list).cuda().requires_grad_()
+                            Q_targets_tensor = torch.stack(Q_targets_list).float().cuda()
+                            Q_values_tensor = torch.stack(Q_values_list).cuda()
+                            # Q_values_tensor = Q_values_list
+                            # Q_targets_tensor = torch.tensor(Q_targets_list).float().cuda()
                         else:
-                            Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).float()
+                            # Q_values_tensor = torch.stack(Q_values_list).requires_grad_()
+                            Q_targets_tensor = torch.stack(Q_targets_list).float()
+                            Q_values_tensor = torch.stack(Q_values_list)
+                            # Q_values_tensor = Q_values_list
+                            # Q_targets_tensor = torch.tensor(Q_targets_list).float()
+
+                        print(Q_values_tensor)
+                        print(Q_targets_tensor)
+                        
+                        """
+                        # Converti in tensori e gestisci il calcolo dei gradienti
+                        if trainer.use_cuda:
+                            Q_values_tensor = torch.tensor(Q_values_list, dtype=torch.float32, requires_grad=True).cuda()
+                            Q_targets_tensor = torch.tensor(Q_targets_list, dtype=torch.float32, requires_grad=True).cuda()
+                        else:
+                            Q_values_tensor = torch.tensor(Q_values_list, dtype=torch.float32, requires_grad=True)
+                            Q_targets_tensor = torch.tensor(Q_targets_list, dtype=torch.float32, requires_grad=True)
+
+                        # Espandi Q_targets_tensor per abbinare le dimensioni di Q_values_tensor
                         Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+                        
+                        # Converti in tensori e gestisci il calcolo dei gradienti
+                        if trainer.use_cuda:
+                            Q_values_tensor = torch.tensor(Q_values_list, dtype=torch.float32, requires_grad=True).cuda()
+                            Q_targets_tensor = torch.tensor(Q_targets_list, dtype=torch.float32, requires_grad=True).cuda()
+                        else:
+                            Q_values_tensor = torch.tensor(Q_values_list, dtype=torch.float32, requires_grad=True)
+                            Q_targets_tensor = torch.tensor(Q_targets_list, dtype=torch.float32, requires_grad=True)
+                        
+                        
+                        if trainer.use_cuda:
+                            Q_values_tensor = torch.stack(Q_values_list).cuda().float()
+                            Q_targets_tensor = torch.stack(Q_targets_list).cuda().float()
+                        else:
+                            Q_values_tensor = torch.stack(Q_values_list).float()
+                            Q_targets_tensor = torch.stack(Q_targets_list).float()
+
+                        
+                        # Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+                        
+                        #if not Q_values_tensor.requires_grad:
+                        #    Q_values_tensor.requires_grad_()  # Imposta requires_grad=True
+                        """
+
+                        # Verifica che i tensori abbiano le dimensioni giuste
+                        assert Q_values_tensor.size() == Q_targets_tensor.size()
+                        # Verifica che i tensori abbiano lo stesso tipo di dato
+                        assert Q_values_tensor.dtype == Q_targets_tensor.dtype
 
                         replay_buffer_length = replay_buffer.get_buffer_length()
 
-                        loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size, sample_counter, sample_counter_threshold)
+                        if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: 
+                            loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size, sample_counter, sample_counter_threshold)
+                            # Detach e elimina i tensori
+                            # Q_values_tensor.detach()   # Separa il tensore dal grafo di calcolo
+                            # Q_targets_tensor.detach()  # Separa il tensore dal grafo di calcolo
+                            Q_values_tensor = Q_values_tensor.detach()
+                            Q_targets_tensor = Q_targets_tensor.detach()
+                            del(Q_values_tensor)         # Elimina il riferimento al tensore Q_values_tensor
+                            del(Q_targets_tensor)        # Elimina il riferimento al tensore Q_targets_tensor                               
+                            
+                            gc.collect() 
+                            
+
 
                         # Update epochs samples counters and save snapshots
-                        if replay_buffer_length >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:    
+                        if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:           
+                            
+                            
                             epoch += 1
                             sample_counter = 0
-                            
+                            print('AGGIORNEMNTO FATTO!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
                             # save and plot losses and rewards
                             trainer.save_and_plot_loss(epoch, loss_value.cpu().detach().numpy(), 'snapshots/losses')
                             trainer.save_and_plot_reward(epoch, current_reward, 'snapshots/rewards')
 
                             # AGGIORNO TARGET NET e salvo snapshot
                             if epoch % args.targetNN_freq == 0:
+                                
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                                 snapshot_targetNet = target_net.save_snapshot('targetNet', max_snapshots=5) 
                                 print(f"{red}{bold}\nAggiorno Target Network {reset}\n")
@@ -988,18 +1058,18 @@ if __name__ == '__main__':
 
     # --------------- Setup options ---------------
     parser.add_argument('--obj_folder_path',  action='store', default='objects/easy_setting/') # path to the folder containing the objects .csv file
-    parser.add_argument('--gui', dest='gui', action='store', default=True) # GUI for PyBullet
+    parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
-    parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=11) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=11) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=10) # number of objects to consider for sorting
+    parser.add_argument('--stage', action='store', default=2) # stage 1 or 2 for training
+    parser.add_argument('--k_max', action='store', default=7) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=7) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=7) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/trainer/network_episode_2003_epoch_981.pth') # path to the  network snapshot
     parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/targetNet/network_episode_0_epoch_0.pth') # path to the target network snapshot
     parser.add_argument('--new_episodes', action='store', default=3) # number of episodes
-    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=True) # Load snapshot 
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
     # parser.add_argument('--batch_size', dest='batch_size', action='store', default=70) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
@@ -1013,9 +1083,9 @@ if __name__ == '__main__':
     parser.add_argument('--targetNN_freq', action='store', default=12)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     # experience replay
-    parser.add_argument('--replay_buffer_capacity', action='store', default=218)  #size of the experience replay buffer 
-    parser.add_argument('--replay_batch_size', action='store', default=28)        #size of the batch ebstracted from experience replay buffer
-    parser.add_argument('--sample_counter_threshold', action='store', default=11)        #
+    parser.add_argument('--replay_buffer_capacity', action='store', default=30)  #size of the experience replay buffer 
+    parser.add_argument('--replay_batch_size', action='store', default=2)        #size of the batch ebstracted from experience replay buffer
+    parser.add_argument('--sample_counter_threshold', action='store', default=10)        #
 
 
     args = parser.parse_args()

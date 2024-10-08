@@ -123,50 +123,21 @@ class Trainer(object):
         return current_reward, Q_target
 
     # Compute labels and backpropagate
-    def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter, counter_threshold):            
-        """ 
-        PORTATO FUORI, PRIMA CHE FUNZIONE INVOCATA, COSI INPUT SOLO Q_target E Q_value
-        # Extract a (random) bacth of experiences from the buffer 
-        experiences_batch = replay_buffer.sample_batch()
-
-        Q_values_list = []
-        Q_targets_list = []
-
-        for experience in experiences_batch:
-
-            state, action, reward, new_state = experience
-            
-            chosen_item_index, orients, indices_rpy, pixel_x, pixel_y = action
-            
-            BoxHeightMap, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp = state
-            Q_values = self.selection_placement_net.placement_net.get_Qvalues(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, chosen_item_index, orients)
-            Q_value = Q_values[indices_rpy, pixel_x, pixel_y]
-            Q_values_list.append(Q_value)
-            
-            NewBoxHeightmap, input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE = new_state
-            Q_values_FUTURE = target_net.selection_placement_net.placement_net.get_Qvalues( input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE, boxHM_FUTURE, chosen_item_index, orients) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
-            Q_max_FUTURE = target_net.ebstract_max(Q_values_FUTURE)    
-            Q_target = target_net.get_Qtarget_value(Q_max_FUTURE, reward)
-            Q_targets_list.append(Q_target)
-
-        # Convert into tensor
-        Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
-        if self.use_cuda:
-            Q_values_tensor = Q_values_tensor.cuda().float()
-            Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).cuda().float()
-        else:
-            Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).float()
-
-        Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
-        """    
+    def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter, counter_threshold):              
 
         loss = self.criterion(Q_values_tensor, Q_targets_tensor)
+        
+        
+        
         loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+        
+        print('STOOOOPPPPPPP')
         print(f"{blue_light}\nComputing loss and gradients on network{reset}")
         print('Training loss: %f' % (loss))
         print('---------------------------------------') 
+        
         # Clip gradients
-        torch.nn.utils.clip_grad_norm_(self.selection_placement_net.parameters(), max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(self.selection_placement_net.placement_net.parameters(), max_norm=1.0)
 
         # Inspect gradients
         print('NETWORK GRAIDENTS:')
@@ -192,26 +163,31 @@ class Trainer(object):
         #         plt.ylabel('Count')
         #         plt.show()
 
-        # if optimizer_step == True:
         if replay_buffer_length >= replay_batch_size and counter % counter_threshold ==0:
             print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
             self.optimizer_worker.step()
-            print(f"{purple}Network trained on ", self.epoch+1, f"EPOCHS{reset}")
-            print('---------------------------------------')  
             self.optimizer_worker.zero_grad()
+            # self.optimizer_manager.zero_grad()
             self.epoch = self.epoch+1
+            print(f"{purple}Network trained on ", self.epoch, f"EPOCHS{reset}")
+            print('---------------------------------------')  
+            
 
-            if self.epoch % 1 == 0 and self.method == 'stage_2':
-                print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
-                print('---------------------------------------') 
-                self.optimizer_manager.step()
-                print('---------------------------------------')           
-                print(f"{purple}Network trained on ", int(self.epoch/ 4)+1, f"EPOCHS{reset}")
-                print('---------------------------------------')  
-                self.optimizer_manager.zero_grad()
+        if self.epoch % 10 == 0 and self.method == 'stage_2':        
+            print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
+            print('---------------------------------------') 
+            # Clip gradients
+            torch.nn.utils.clip_grad_norm_(self.selection_placement_net.selection_net.parameters(), max_norm=1.0)
+            self.optimizer_manager.step()
+            self.optimizer_manager.zero_grad()
+            print('---------------------------------------')           
+            print(f"{purple}Network trained on ", int(self.epoch/ 4)+1, f"EPOCHS{reset}")
+            print('---------------------------------------')  
+            
 
         if self.use_cuda:
             torch.cuda.empty_cache()
+        gc.collect()
 
         return loss
 
