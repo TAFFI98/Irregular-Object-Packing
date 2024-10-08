@@ -433,7 +433,6 @@ def train(args):
 
                         input1_placement_rp_angles_FUTURE = torch.tensor(np.asarray(roll_pitch_angles),requires_grad=True)      #CHECK ROLL_PITCH_ANGLES 
 
-
                         # If the remaining objects are less than k_sort, fill the input tensors with zeros
                         if len(bbox_order_FUTURE) < k_sort:
                           for j in range(k_sort-len(bbox_order_FUTURE)):
@@ -464,7 +463,7 @@ def train(args):
                             att_weights, rpy, x, y = action
                             
                             box_HM, placement_rp_angles, placement_HM_rp = state
-                            Qvalues, a, b = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
+                            Qvalues, _, _ = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
                             Qvalue = Qvalues[rpy, x, y]
                             
 
@@ -484,14 +483,13 @@ def train(args):
                                 Qtar_tensor = Qtar_tensor.expand_as(Qvalue)
                             
                             Q_targets_list.append(Qtar_tensor)
-                            
-                            Q_values_list.append(Qvalue)
-                            #Q_values_list.append(float(Qvalue.item()))
-
                             # Q_targets_list.append(torch.tensor(Qtarget, requires_grad=True))
                             #Q_targets_list.append(torch.tensor(Qtarget, dtype=torch.float32, requires_grad=True))
                             # Q_targets_list.append(Qtarget)
                         
+                            Q_values_list.append(Qvalue)
+                            #Q_values_list.append(float(Qvalue.item()))
+                            
 
                         print(Q_values_list)
                         print(Q_targets_list)
@@ -549,9 +547,6 @@ def train(args):
                         
                         #if not Q_values_tensor.requires_grad:
                         #    Q_values_tensor.requires_grad_()  # Imposta requires_grad=True
-
-                        tensor(0.1741, grad_fn=<SelectBackward0>)
-                        tensor(0.1127)
                         
                         """
 
@@ -561,35 +556,23 @@ def train(args):
                         assert Q_values_tensor.dtype == Q_targets_tensor.dtype
                         
                         
-
                         replay_buffer_length = replay_buffer.get_buffer_length()
 
-                        if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: 
-                            loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size, sample_counter, sample_counter_threshold)
-                            # Detach e elimina i tensori
-                            # Q_values_tensor.detach()   # Separa il tensore dal grafo di calcolo
-                            # Q_targets_tensor.detach()  # Separa il tensore dal grafo di calcolo
-                            Q_values_tensor = Q_values_tensor.detach()
-                            Q_targets_tensor = Q_targets_tensor.detach()
-                            del(Q_values_tensor)         # Elimina il riferimento al tensore Q_values_tensor
-                            del(Q_targets_tensor)        # Elimina il riferimento al tensore Q_targets_tensor                               
+                        # if replay_buffer.get_buffer_length() >= replay_buffer.batch_size: 
                             
-                            gc.collect() 
 
                         # Update epochs samples counters and save snapshots
-                        if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:           
-                            
-                            
+                        if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter % sample_counter_threshold == 0:                
+                            loss_value = trainer.backprop(Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_buffer.batch_size, sample_counter, sample_counter_threshold)
                             epoch += 1
                             sample_counter = 0
-                            print('AGGIORNEMNTO FATTO!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1')
+                            
                             # save and plot losses and rewards
                             trainer.save_and_plot_loss(epoch, loss_value.cpu().detach().numpy(), 'snapshots/losses')
                             trainer.save_and_plot_reward(epoch, current_reward, 'snapshots/rewards')
 
                             # AGGIORNO TARGET NET e salvo snapshot
-                            if epoch % args.targetNN_freq == 0:
-                                
+                            if epoch % args.targetNN_freq == 0: 
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
                                 snapshot_targetNet = target_net.save_snapshot('targetNet', max_snapshots=5) 
                                 print(f"{red}{bold}\nAggiorno Target Network {reset}\n")
@@ -1097,12 +1080,12 @@ if __name__ == '__main__':
     parser.add_argument('--epsilon_decay', action='store', default=0.9975)   # Fattore di decrescita per epsilon
 
     # frequenza di aggiornamento della target network
-    parser.add_argument('--targetNN_freq', action='store', default=12)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+    parser.add_argument('--targetNN_freq', action='store', default=2)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     # experience replay
-    parser.add_argument('--replay_buffer_capacity', action='store', default=30)  #size of the experience replay buffer 
+    parser.add_argument('--replay_buffer_capacity', action='store', default=5)  #size of the experience replay buffer 
     parser.add_argument('--replay_batch_size', action='store', default=2)        #size of the batch ebstracted from experience replay buffer
-    parser.add_argument('--sample_counter_threshold', action='store', default=10)        #
+    parser.add_argument('--sample_counter_threshold', action='store', default=3)        #
 
 
     args = parser.parse_args()

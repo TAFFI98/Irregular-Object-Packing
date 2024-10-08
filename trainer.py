@@ -74,6 +74,7 @@ class Trainer(object):
         # Initialize optimizers
         self.optimizer_manager = torch.optim.Adam(self.selection_placement_net.selection_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         self.optimizer_worker = torch.optim.Adam(self.selection_placement_net.placement_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        self.optimizer = torch.optim.Adam(self.selection_placement_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
         self.iteration = 0
         
         print('---------------------------------------------------')
@@ -126,19 +127,26 @@ class Trainer(object):
     def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter, counter_threshold):              
 
         loss = self.criterion(Q_values_tensor, Q_targets_tensor)
-        
-        
-        
+                
         loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-        
-        print('STOOOOPPPPPPP')
+
+        # Detach tensors (crucial for experience replay)
+        # Q_values_tensor = Q_values_tensor.detach()
+        # Q_targets_tensor = Q_targets_tensor.detach()
+        Q_values_tensor.detach_()
+        Q_targets_tensor.detach_()
+        del(Q_values_tensor)
+        del(Q_targets_tensor)
+        gc.collect()
+
         print(f"{blue_light}\nComputing loss and gradients on network{reset}")
         print('Training loss: %f' % (loss))
         print('---------------------------------------') 
         
         # Clip gradients
-        torch.nn.utils.clip_grad_norm_(self.selection_placement_net.placement_net.parameters(), max_norm=1.0)
-
+        #torch.nn.utils.clip_grad_norm_(self.selection_placement_net.placement_net.parameters(), max_norm=1.0)
+        #torch.nn.utils.clip_grad_norm_(self.selection_placement_net.selection_net.parameters(), max_norm=1.0)
+    
         # Inspect gradients
         print('NETWORK GRAIDENTS:')
         for name, param in self.selection_placement_net.named_parameters():
@@ -165,9 +173,10 @@ class Trainer(object):
 
         if replay_buffer_length >= replay_batch_size and counter % counter_threshold ==0:
             print(f"{blue_light}\nBackpropagating loss on worker network{reset}\n")
+            # Clip gradients
+            torch.nn.utils.clip_grad_norm_(self.selection_placement_net.placement_net.parameters(), max_norm=1.0)
             self.optimizer_worker.step()
             self.optimizer_worker.zero_grad()
-            # self.optimizer_manager.zero_grad()
             self.epoch = self.epoch+1
             print(f"{purple}Network trained on ", self.epoch, f"EPOCHS{reset}")
             print('---------------------------------------')  
