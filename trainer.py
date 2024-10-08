@@ -144,6 +144,8 @@ class Trainer(object):
             
             loss = self.criterion(Q_values[indices_rpy, pixel_x, pixel_y], Q_target_tensor)
             loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
+            
+            
             print(f"{blue_light}\nComputing loss and gradients on network{reset}")
             print('Training loss: %f' % (loss))
             print('---------------------------------------') 
@@ -614,7 +616,9 @@ class Trainer(object):
         else:
           # Exploitation: select the index with the maximum Q value
           print(f'{red_light}Sto eseguendo EXPLOITATION!{reset}')
-          _, random_index = torch.argmax(Q_values_flat, 0)
+          # _, random_index = torch.argmax(Q_values_flat, 0)
+          _, random_index = torch.max(Q_values_flat, 0)
+
 
         # Unravel the index to get the 3D coordinates
         index_tensor = torch.tensor(random_index)
@@ -714,15 +718,19 @@ class Trainer(object):
         self.epsilon = max(eps, self.epsilon_min)
         print(f'{blue_light}Nuovo valore di epsilon: {self.epsilon}{reset}')    
 
-    def save_snapshot(self, max_snapshots=5):
+    def save_snapshot(self, folder_name, max_snapshots=5):
         """
         Save snapshots of the trained models.
         """
-        os.makedirs('snapshots/models/', exist_ok=True)
-        torch.save(self.selection_placement_net.state_dict(), f'snapshots/models/network_episode_{self.episode}_epoch_{self.epoch}.pth')
+        # Create the directory if it doesn't exist
+        snapshot_dir = os.path.join('snapshots', 'models', folder_name)
+        os.makedirs(snapshot_dir, exist_ok=True)
+
+        snapshot_file = os.path.join(snapshot_dir, f'network_episode_{self.episode}_epoch_{self.epoch}.pth')
+        torch.save(self.selection_placement_net.state_dict(), snapshot_file)
 
         # Get a list of all files in the directory
-        files = glob.glob(os.path.join('snapshots/models/', '*'))
+        files = glob.glob(os.path.join(snapshot_dir, '*'))
 
         # If there are more than 5 files
         if len(files) > max_snapshots:
@@ -732,5 +740,5 @@ class Trainer(object):
                 # Remove the oldest file
                 os.remove(files[0])
 
-        return  f'snapshots/models/network_episode_{self.episode}_epoch_{self.epoch}.pth'
+        return snapshot_file
 

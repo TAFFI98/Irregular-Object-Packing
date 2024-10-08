@@ -479,13 +479,16 @@ def train(args):
                             trainer.save_and_plot_loss(list_epochs_for_plot, losses, 'snapshots/losses')
                             trainer.save_and_plot_reward(list_epochs_for_plot, rewards, 'snapshots/rewards')
 
-                            # save snapshots and remove old ones if more than max_snapshots
-                            snapshot = trainer.save_snapshot(max_snapshots=5) 
-
-                            # AGGIORNO TARGET NET
+                            # AGGIORNO TARGET NET e salvo snapshot
                             if epoch % args.targetNN_freq == 0:
                                 target_net.selection_placement_net.load_state_dict(trainer.selection_placement_net.state_dict())
+                                snapshot_targetNet = target_net.save_snapshot('targetNet', max_snapshots=5) 
                                 print(f"{red}{bold}\nAggiorno Target Network {reset}\n")
+                                
+                            # save snapshots and remove old ones if more than max_snapshots
+                            if epoch % 2 == 0: 
+                              snapshot = trainer.save_snapshot('trainer', max_snapshots=5) 
+            
             
             # Updating the box heightmap and the objective function
             prev_obj = current_obj
@@ -969,7 +972,7 @@ if __name__ == '__main__':
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/network_episode_7_epoch_11.pth') # path to the  network snapshot
     parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/network_episode_7_epoch_11.pth') # path to the target network snapshot
     parser.add_argument('--new_episodes', action='store', default=5) # number of episodes
-    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=True) # Load snapshot 
+    parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
     parser.add_argument('--batch_size', dest='batch_size', action='store', default=1) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
@@ -980,7 +983,7 @@ if __name__ == '__main__':
     parser.add_argument('--epsilon_decay', action='store', default=0.9975)   # Fattore di decrescita per epsilon
 
     # frequenza di aggiornamento della target network
-    parser.add_argument('--targetNN_freq', action='store', default=3)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+    parser.add_argument('--targetNN_freq', action='store', default=1000)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     args = parser.parse_args()
     
