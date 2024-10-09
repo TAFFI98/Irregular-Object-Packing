@@ -33,7 +33,7 @@ class Trainer(object):
         self.K = K               # total number of items to be packed
         self.epoch = epoch       # epoch counter
         self.episode = episode   # episode counter
-        self.lr = 1e-3           # learning rate 1e-3 for stage 1 and 1e-4 for stage 2
+        self.lr = 1e-4           # learning rate 1e-3 for stage 1 and 1e-4 for stage 2
         self.weight_decay = 2.5e-5 # weight decay
 
         self.epsilon = epsilon              # Valore iniziale per epsilon
@@ -42,19 +42,25 @@ class Trainer(object):
     
         # Check if CUDA can be used
         if torch.cuda.is_available() and not force_cpu:
-            print(f"{bold}CUDA detected. Running with GPU acceleration.{reset}")
+            print(f"CUDA detected. Running with GPU acceleration.{reset}")
             self.use_cuda = True
         elif force_cpu:
-            print(f"{bold}CUDA detected, but overriding with option '--cpu'. Running with only CPU.{reset}")
+            print(f"CUDA detected, but overriding with option '--cpu'. Running with only CPU.{reset}")
             self.use_cuda = False
         else:
-            print(f"{bold}CUDA is *NOT* detected. Running with only CPU.{reset}")
+            print(f"CUDA is *NOT* detected. Running with only CPU.{reset}")
             self.use_cuda = False
 
         if type_net == 'manager':
             # INITIALIZE NETWORK
             self.selection_net = selection_net(use_cuda = self.use_cuda, K = self.K)
-                
+            super
+            
+            if self.use_cuda == True:
+                self.selection_net.cuda()
+            else:
+                self.selection_net.cpu()
+
             # Initialize Huber loss
             self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
             self.future_reward_discount = future_reward_discount
@@ -80,7 +86,10 @@ class Trainer(object):
         elif type_net == 'worker':
             # INITIALIZE NETWORK
             self.placement_net = placement_net(n_y = self.n_y, in_channel_unet = 3, out_channel = 1, use_cuda = self.use_cuda)
-                
+            if self.use_cuda == True:
+                self.placement_net.cuda()
+            else:
+                self.placement_net.cpu()  
             # Initialize Huber loss
             self.criterion = torch.nn.SmoothL1Loss(reduction='mean') # Huber loss
             self.future_reward_discount = future_reward_discount
@@ -88,8 +97,8 @@ class Trainer(object):
             # Load pre-trained model
             if load_snapshot:
                 map_location = torch.device('cuda') if self.use_cuda else torch.device('cpu')
-                self.placement_net.load_state_dict(torch.load(file_snapshot, map_location=map_location))
-                # self.selection_placement_net.load_state_dict(torch.load(file_snapshot))
+                elf.placement_net.load_state_dict(torch.load(file_snapshot, map_location=map_location))
+                self.placement_net.load_state_dict(torch.load(file_snapshot))
                 print(f'{red}Pre-trained model snapshot loaded from: %s' % (file_snapshot),f'{reset}')
         
             # Convert model from CPU to GPU
@@ -103,9 +112,6 @@ class Trainer(object):
             self.optimizer_worker = torch.optim.Adam(self.placement_net.parameters(), lr=self.lr, weight_decay=self.weight_decay)
             self.iteration = 0
             
-        print('---------------------------------------------------')
-        print(f"{bold}TRAINER INITIALIZED.{reset}")
-        print('---------------------------------------------------')
  
     def forward_network(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
         '''
@@ -220,13 +226,13 @@ class Trainer(object):
         torch.nn.utils.clip_grad_norm_(self.selection_net.parameters(), max_norm=1.0)
 
         # Inspect gradients
-        # print('SELECTION NETWORK GRAIDENTS:')
-        # for name, param in self.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
-        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
-        #     else:
-        #         print(f"Layer: {name} | No gradients computed")
+        print('SELECTION NETWORK GRAIDENTS:')
+        for name, param in self.selection_net.named_parameters():
+            if param.grad is not None:
+                print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+                print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
+            else:
+                print(f"Layer: {name} | No gradients computed")
 
         # Check for NaN gradients
         for name, param in self.selection_net.named_parameters():           
@@ -243,17 +249,15 @@ class Trainer(object):
         #         plt.ylabel('Count')
         #         plt.show()
 
-        # if optimizer_step == True:
-        if epoch_pla % epoch_treshold == 0: 
-        # if self.epoch % 4 == 0:             
-            print(f"{blue_light}\nBackpropagating loss on Selection Network (manager network){reset}\n")
-            print('---------------------------------------') 
-            self.optimizer_manager.step()
-            print('---------------------------------------')           
-            print(f"{purple}Selection Network trained on ", self.epoch+1, f"EPOCHS{reset}")    # ???????????????????????????????????????????????????????????????????????
-            print('---------------------------------------')  
-            self.optimizer_manager.zero_grad()
-            self.epoch = self.epoch+1
+        #if epoch_pla > 0 and epoch_pla % epoch_treshold == 0:             
+        print(f"{blue_light}\nBackpropagating loss on Selection Network (manager network){reset}\n")
+        print('---------------------------------------') 
+        self.optimizer_manager.step()
+        print('---------------------------------------')           
+        print(f"{purple}Selection Network trained on ", self.epoch+1, f"EPOCHS{reset}")    # ???????????????????????????????????????????????????????????????????????
+        print('---------------------------------------')  
+        self.optimizer_manager.zero_grad()
+        self.epoch = self.epoch+1
 
         if self.use_cuda:
             torch.cuda.empty_cache()
@@ -272,13 +276,13 @@ class Trainer(object):
         torch.nn.utils.clip_grad_norm_(self.placement_net.parameters(), max_norm=1.0)
 
         # Inspect gradients
-        # print('NETWORK GRAIDENTS:')
-        # for name, param in self.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
-        #         print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
-        #     else:
-        #         print(f"Layer: {name} | No gradients computed")
+        print('PLACEMENT NETWORK GRAIDENTS:')
+        for name, param in self.placement_net.named_parameters():
+            if param.grad is not None:
+                print(f"Layer: {name} | Gradients computed: {param.grad.size()}")
+                print(f'Layer: {name} | Gradient mean: {param.grad.mean()} | Gradient std: {param.grad.std()}')
+            else:
+                print(f"Layer: {name} | No gradients computed")
 
         # Check for NaN gradients
         for name, param in self.placement_net.named_parameters():
@@ -295,14 +299,13 @@ class Trainer(object):
         #         plt.ylabel('Count')
         #         plt.show()
 
-        # if optimizer_step == True:
-        if replay_buffer_length >= replay_batch_size and counter % counter_treshold == 0:
-            print(f"{blue_light}\nBackpropagating loss on Placement Network (worker network){reset}\n")
-            self.optimizer_worker.step()
-            print(f"{purple}Placement Network trained on ", self.epoch+1, f"EPOCHS{reset}")
-            print('---------------------------------------')  
-            self.optimizer_worker.zero_grad()
-            self.epoch = self.epoch+1
+        #if replay_buffer_length >= replay_batch_size and counter % counter_treshold == 0:
+        print(f"{blue_light}\nBackpropagating loss on Placement Network (worker network){reset}\n")
+        self.optimizer_worker.step()
+        print(f"{purple}Placement Network trained on ", self.epoch+1, f"EPOCHS{reset}")
+        print('---------------------------------------')  
+        self.optimizer_worker.zero_grad()
+        self.epoch = self.epoch+1
 
         if self.use_cuda:
             torch.cuda.empty_cache()
@@ -627,8 +630,6 @@ class Trainer(object):
                 chosen_index = sorted_indices[attempt]
                 print(f"Exploiting: Best action chosen at attempt {attempt + 1}")
 
-            print('ECCO INDICE!!!!!!!!!!!!!!!!!')
-            print(chosen_index)
             index_tensor = torch.tensor(chosen_index)
             index = torch.unravel_index(index_tensor, Q_size)
             indices_rpy = int(index[0])
@@ -740,12 +741,12 @@ class Trainer(object):
         print(f'{blue_light}Nuovo valore di epsilon: {self.epsilon}{reset}')    
 
 
-    def save_snapshot(self, type_net, folder_name, max_snapshots=5):
+    def save_snapshot(self, type_net, snapshot_dir, max_snapshots=5):
         """
         Save snapshots of the trained models.
         """
         # Create the directory if it doesn't exist
-        snapshot_dir = os.path.join('snapshots', 'models', folder_name)
+        #snapshot_dir = os.path.join('snapshots', 'models', folder_name)
         os.makedirs(snapshot_dir, exist_ok=True)
 
         snapshot_file = os.path.join(snapshot_dir, f'network_episode_{self.episode}_epoch_{self.epoch}.pth')

@@ -78,17 +78,19 @@ def train(args):
             
             # Initialize trainer (POLICY NET)
             print(f"{bold}\nCreo Policy Networks{reset}\n") 
+            print('---------------------------------------------------')
             print(f"{bold}creo Selection Network [MANAGER]{reset}\n") 
             policy_sel_net = Trainer('manager', epsilon=args.epsilon_sel, epsilon_min=args.epsilon_min_sel, epsilon_decay=args.epsilon_decay_sel, 
                                     future_reward_discount = 0.5, force_cpu = args.force_cpu,
                                     load_snapshot = load_snapshot_, file_snapshot = snap_sel,
                                     K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch_sel)
+            print('---------------------------------------------------')
             print(f"{bold}creo Placement Network [WORKER]{reset}\n") 
             policy_pla_net = Trainer('worker', epsilon=args.epsilon_pla, epsilon_min=args.epsilon_min_pla, epsilon_decay=args.epsilon_decay_pla, 
                                     future_reward_discount = 0.5, force_cpu = args.force_cpu,
                                     load_snapshot = load_snapshot_, file_snapshot = snap_pla,
                                     K = k_sort, n_y = args.n_yaw, episode = episode, epoch = epoch_pla)
-            
+            print('---------------------------------------------------')
             print(f"{bold}\nCreo Target Networks{reset}")
             target_sel_net = Trainer('manager', epsilon=args.epsilon_sel, epsilon_min=args.epsilon_min_sel, epsilon_decay=args.epsilon_decay_sel, 
                                     future_reward_discount = 0.5, force_cpu = args.force_cpu,
@@ -101,7 +103,7 @@ def train(args):
             
             # inizializzo le target nets con stessi pesi delle policy nets (se episodio 0, non vengono caricati snapshots)
             if load_snapshot_ == False:
-                print(f"{red}{bold}Copio pesi Policy Networks su Target Networks{reset}\n") 
+                print(f"{red}{bold}\nCopio pesi Policy Networks su Target Networks{reset}\n") 
                 target_sel_net.selection_net.load_state_dict(policy_sel_net.selection_net.state_dict())
                 target_pla_net.placement_net.load_state_dict(policy_pla_net.placement_net.state_dict())
     
@@ -122,7 +124,7 @@ def train(args):
 
         # Initialize environment
         env = Env(obj_dir = args.obj_folder_path, is_GUI = args.gui, box_size=box_size, resolution = resolution)
-        print('Set up of PyBullet Simulation environment: \nBox size: ',box_size, '\nResolution: ',resolution)
+        print('\nSet up of PyBullet Simulation environment: \nBox size: ',box_size, '\nResolution: ',resolution)
         
         # Generate csv file with objects
         print('----------------------------------------') 
@@ -302,21 +304,34 @@ def train(args):
             
             # Forward Selection Net
             Q_values_sel, attention_weights = policy_sel_net.selection_net.forward( input1_selection_HM_6views, boxHM, input2_selection_ids) 
-            
+
             #PRENDE OGGETTO DA attention_weights
             # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
             if np.random.rand() < policy_sel_net.epsilon:
                 # Scegli un'azione casuale
-                print(f'{bold}Sto eseguendo EXPLORATION!{reset}') 
-                sel_obj = random.randint(0, len(env.unpacked)-1)
+                print(f'{red_light}Sto eseguendo EXPLORATION!{reset}') 
+                # sel_obj = random.randint(0, len(input2_selection_ids)-1)
+                # sel_obj = int(torch.randint(0, len(input2_selection_ids)-1, (1,)).item())
+                # sel_obj = torch.randint(0, len(attention_weights), (1,)).item()
+                while True:  # Loop fino a trovare un oggetto non inserito
+                  sel_obj = torch.randint(0, len(Q_values_sel[0]), (1,)).item()  # Seleziona casualmente
+                  if Q_values_sel[0][sel_obj].item() != 0:  # Controlla se l'oggetto è già inserito
+                    break 
             else:
                 # Scegli l'azione con il massimo Q-value
                 # selected_obj = int(torch.argmax(Q_values).cpu().numpy())
                 # selected_obj = torch.argmax(attention_weights)
-                print(f'{bold}Sto eseguendo EXPLOITATION!{reset}') 
-                sel_obj = int(torch.argmax(attention_weights).cpu().numpy())
-            
+                print(f'{red_light}Sto eseguendo EXPLOITATION!{reset}') 
+                sel_obj = int(torch.argmax(Q_values_sel).cpu().numpy())
+
+            # USA ATTENTION WEIGHTS INVECE DI Q-VALUES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
             selected_obj = int(input2_selection_ids.clone().cpu().detach()[sel_obj]) 
+            
+            print(sel_obj)
+            print(selected_obj)
+            
             Qvalue_sel = Q_values_sel[:, sel_obj]
 
             print('Qvalues DELLA SELECTION NET:')
@@ -324,8 +339,8 @@ def train(args):
 
             # Forwad Placement Net
             Q_values_pla, orients = policy_pla_net.placement_net.forward(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights) 
-            print('Qvalues DELLA PLACEMENT NET:')
-            print(Q_values_pla)
+            #print('Qvalues DELLA PLACEMENT NET:')
+            #print(Q_values_pla)
 
             # Update tried objects and remove the selected object from the list of objects to be packed 
             tried_obj.append(selected_obj)
@@ -356,12 +371,11 @@ def train(args):
             #indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity(env, Q_values_pla, orients, heightmap_box, selected_obj)
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity_TENTATIVES(env, Q_values_pla, orients, heightmap_box, selected_obj, max_attempts)
             
+            sample_counter += 1
+
             # Compute the objective function
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function(packed, env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
-            
-            sample_counter += 1
-
             if packed == False:
                 print(f"{bold}{red}OBJECT WITH ID: ", selected_obj, f" CANNOT BE PACKED{reset}")
                 print('---------------------------------------') 
@@ -401,10 +415,10 @@ def train(args):
                 reward_pla = env.calculate_reward(packed, attempt, max_attempts)
                 
                 # Add the new experience to the replay buffer
-                state = [boxHM, input1_placement_rp_angles, input2_placement_HM_rp]
+                state = [boxHM.clone(), input1_placement_rp_angles.clone(), input2_placement_HM_rp.clone()]
                 action = [attention_weights, indices_rpy, pixel_x, pixel_y]
                 current_reward = reward_pla
-                new_state = [input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE]
+                new_state = [input1_selection_HM_6views_FUTURE.clone(), boxHM_FUTURE.clone(), input2_selection_ids_FUTURE.clone(), input1_placement_rp_angles_FUTURE.clone(), input2_placement_HM_rp_FUTURE.clone()]
                 replay_buffer.add_experience(state, action, current_reward, new_state)
                 
                 # Extract a (random) bacth of experiences from the buffer 
@@ -420,38 +434,45 @@ def train(args):
                     selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
 
                     # CALCOLO Qvalues della PLACEMENT net
-                    Q_values_pla, _ = policy_pla_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights) 
+                    Q_values_pla, _ = policy_pla_net.placement_net.forward(placement_rp_angles.detach().clone(), placement_HM_rp.detach().clone(), box_HM.detach().clone(), att_weights.detach().clone()) 
                     Qval_pla = Q_values_pla[rpy, x, y]
 
                     # verifica se episodio prelevato coincide con un TERMINAL STATE
                     if torch.any(selection_ids_FUTURE):
                         # forward pass attraverso la TARGET Selection Net
-                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
+                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE.detach().clone(), box_HM_FUTURE.detach().clone(), selection_ids_FUTURE.detach().clone()) 
                         # forward pass attraverso la TARGET Placeemnt Net
-                        Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
+                        Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE.detach().clone(), placement_HM_rp_FUTURE.detach().clone(), box_HM_FUTURE.detach().clone(), attention_weights_FUTURE.detach().clone()) 
                         Qmax_FUTURE = target_pla_net.ebstract_max(Qvalues_pla_FUTURE)    
                     else:
                         Qmax_FUTURE = 0
                     Qtarget_pla = reward + policy_pla_net.future_reward_discount * Qmax_FUTURE
-                    
-                    # Aggiunti nuovi valori in coda alla lista
+                     
+                    Qtar_pla_tensor = torch.tensor(Qtarget_pla).float()
+                    Qtar_pla_tensor = Qtar_pla_tensor.expand_as(Qval_pla)
+                    Q_targets_list.append(Qtar_pla_tensor)
+                
                     Q_values_list.append(Qval_pla)
-                    Q_targets_list.append(Qtarget_pla)
+                
 
-                # Convert lists into tensors
-                Q_values_tensor = torch.tensor(Q_values_list, requires_grad=True)
+                # Convert into tensors
                 if policy_pla_net.use_cuda:
-                    Q_values_tensor = Q_values_tensor.cuda().float()
-                    Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).cuda().float()
+                    Qval_tensor_pla = torch.stack(Q_values_list).cuda()
+                    Qtar_tensor_pla = torch.stack(Q_targets_list).cuda()
                 else:
-                    Q_targets_tensor = torch.tensor(Q_targets_list, requires_grad=True).float()
-                Q_targets_tensor = Q_targets_tensor.expand_as(Q_values_tensor)
+                    Qval_tensor_pla = torch.stack(Q_values_list)
+                    Qtar_tensor_pla = torch.stack(Q_targets_list)
 
-                # Calcola la loss e esegui backpropagation (se necessario)
-                loss_value_pla = policy_pla_net.backprop_pla(Q_targets_tensor, Q_values_tensor, replay_buffer.get_buffer_length(), replay_buffer.batch_size, sample_counter, counter_threshold_pla)
-
+                # Verifica che i tensori abbiano le dimensioni giuste
+                assert Qval_tensor_pla.size() == Qtar_tensor_pla.size()
+                # Verifica che i tensori abbiano lo stesso tipo di dato
+                assert Qval_tensor_pla.dtype == Qtar_tensor_pla.dtype
+        
                 # Update epochs samples counters and save snapshots
                 if replay_buffer.get_buffer_length() >= replay_buffer.batch_size and sample_counter % counter_threshold_pla == 0:    
+                    # Calcola la loss e esegui backpropagation (se necessario)
+                    loss_value_pla = policy_pla_net.backprop_pla(Qtar_tensor_pla, Qval_tensor_pla, replay_buffer.get_buffer_length(), replay_buffer.batch_size, sample_counter, counter_threshold_pla)
+                    
                     epoch_pla += 1
                     sample_counter = 0
                     
@@ -462,17 +483,16 @@ def train(args):
                     # AGGIORNO TARGET NET e salvo snapshot
                     if epoch_pla % args.target_pla_freq == 0:
                         target_pla_net.placement_net.load_state_dict(policy_pla_net.placement_net.state_dict())
-                        snapshot_target_pla = target_pla_net.save_snapshot('worker', 'placement_net/target', max_snapshots=5) 
+                        snapshot_target_pla = target_pla_net.save_snapshot('worker', 'snapshots/placement_net/models/target', max_snapshots=5) 
                         print(f"{red}{bold}\nAggiorno Target Placement Network {reset}\n")
 
                     # save snapshots and remove old ones if more than max_snapshots
-                    if epoch_pla % 5 == 0: 
-                        snapshot = policy_pla_net.save_snapshot('worker','placement_net/trainer', max_snapshots=5) 
+                    if epoch_pla % 1 == 0: 
+                        snapshot = policy_pla_net.save_snapshot('worker','snapshots/placement_net/models/trainer', max_snapshots=5) 
 
                 
                 # Calcolo Reward per il Manager (proviene dall'environment)
                 reward_sel = env.Reward_function(prev_obj, current_obj)
-                print('SONO QUIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
                 # CALCOLO Qtarget della PLACEMENT net
                     
                 # Forward TARGET selection net
@@ -484,18 +504,18 @@ def train(args):
                 Q_target_sel = reward + policy_sel_net.future_reward_discount * Qmax_FUTURE
 
                 # Convert into tensor
-                Qval_tensor_sel = torch.tensor(Qvalue_sel, requires_grad=True)
                 if policy_sel_net.use_cuda:
                     Qtar_tensor_sel = torch.tensor(Q_target_sel).cuda().float()
-                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel)
+                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qvalue_sel)
                 else:
                     Qtar_tensor_sel = torch.tensor(Q_target_sel).float()
-                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qval_tensor_sel)
+                    Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qvalue_sel)
 
-                # calcolo della loss ed esegui bacpropagation
-                loss_value_sel = policy_sel_net.backprop_sel(Qtar_tensor_sel, Qval_tensor_sel, policy_pla_net.epoch, epoch_threshold_sel)
                 
                 if policy_pla_net.epoch % epoch_threshold_sel == 0:    
+                    # calcolo della loss ed esegui bacpropagation
+                    loss_value_sel = policy_sel_net.backprop_sel(Qtar_tensor_sel, Qvalue_sel, policy_pla_net.epoch, epoch_threshold_sel)
+                    
                     epoch_sel += 1
                     
                     # save and plot losses and rewards
@@ -505,12 +525,12 @@ def train(args):
                     # Aggiorno TARGET selection net
                     if epoch_sel % args.target_sel_freq == 0:
                         target_sel_net.selection_net.load_state_dict(policy_sel_net.selection_net.state_dict())
-                        snapshot_target_sel = target_sel_net.save_snapshot('manager','selection_net/target', max_snapshots=5) 
+                        snapshot_target_sel = target_sel_net.save_snapshot('manager','snapshots/selection_net/models/target', max_snapshots=5) 
                         print(f"{red}{bold}\nAggiorno Target selection Network {reset}\n")
 
                     # save snapshots and remove old ones if more than max_snapshots
-                    if epoch_sel % 5 == 0: 
-                        snapshot = policy_sel_net.save_snapshot('manager', 'selection_net/trainer', max_snapshots=5) 
+                    if epoch_sel % 1 == 0: 
+                        snapshot = policy_sel_net.save_snapshot('manager', 'snapshots/selection_net/models/trainer', max_snapshots=5) 
 
 
             # Updating the box heightmap and the objective function
@@ -557,7 +577,7 @@ if __name__ == '__main__':
     parser.add_argument('--snapshot_targetNet_sel', dest='snapshot_targetNet_sel', action='store', default=f'snapshots/selectionNet/models/targetNet/network_episode_0_epoch_492.pth') # path to the target network snapshot
     parser.add_argument('--snapshot_pla', dest='snapshot_pla', action='store', default=f'snapshots/placementNet/models/policyNet/network_episode_3292_epoch_494.pth') # path to the  network snapshot
     parser.add_argument('--snapshot_targetNet_pla', dest='snapshot_targetNet_pla', action='store', default=f'snapshots/placementNet/models/targetNet/network_episode_0_epoch_492.pth') # path to the target network snapshot
-    parser.add_argument('--new_episodes', action='store', default=3) # number of episodes
+    parser.add_argument('--new_episodes', action='store', default=2) # number of episodes
     parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
@@ -576,11 +596,11 @@ if __name__ == '__main__':
     parser.add_argument('--target_pla_freq', action='store', default=1)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     # experience replay
-    parser.add_argument('--replay_buffer_capacity', action='store', default=150)                 #size of the experience replay buffer 
-    parser.add_argument('--replay_batch_size', action='store', default=2)                        #size of the batch ebstracted from experience replay buffer
-    parser.add_argument('--sample_counter_threshold_placement_net', action='store', default=15)  #dopo quanti inseriemnti viene aggiornato il worker
+    parser.add_argument('--replay_buffer_capacity', action='store', default=15)                 #size of the experience replay buffer 
+    parser.add_argument('--replay_batch_size', action='store', default=1)                        #size of the batch ebstracted from experience replay buffer
+    parser.add_argument('--sample_counter_threshold_placement_net', action='store', default=1)  #dopo quanti inseriemnti viene aggiornato il worker
 
-    parser.add_argument('--epoch_counter_threshold_selection_net', action='store', default=3)  #dopo quantie epoche viene aggiornato il manager
+    parser.add_argument('--epoch_counter_threshold_selection_net', action='store', default=1)  #dopo quantie epoche viene aggiornato il manager
 
     args = parser.parse_args()
     

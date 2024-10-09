@@ -144,25 +144,12 @@ class selection_net(nn.Module):
         # Ensure score_values for all-zero inputs remain zero
         Q_values = Q_values * (1 - zero_masks_tensor)
 
-        
         # Apply Gumbel-Softmax to the score values
         alpha = 900
         attention_weights = torch.softmax(alpha * Q_values,dim =1)
         while torch.max(attention_weights).item() == 1:
             alpha = alpha - 100
             attention_weights = torch.softmax(alpha * Q_values, dim =1)
-        
-        """
-        # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
-        if np.random.rand() < epsilon:
-            # Scegli un'azione casuale
-            print(f'{red_light}Sto eseguendo EXPLORATION!{reset}') 
-            selected_obj = np.random.choice(len(Q_values))  # Assumendo che q_values sia un array
-        else:
-            # Scegli l'azione con il massimo Q-value
-            print(f'{red_light}Sto eseguendo EXPLOITATION{reset}')
-            selected_obj = int(torch.argmax(Q_values, dim=1).detach().cpu().numpy())
-        """  
 
         return Q_values, attention_weights
     
