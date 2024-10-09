@@ -182,7 +182,7 @@ class Trainer(object):
             print('---------------------------------------')  
             
 
-        if self.epoch % 10 == 0 and self.method == 'stage_2':        
+        if self.epoch % 3 == 0 and self.method == 'stage_2':        
             print(f"{blue_light}\nBackpropagating loss on manager network{reset}\n")
             print('---------------------------------------') 
             # Clip gradients

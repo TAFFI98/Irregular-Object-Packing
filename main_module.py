@@ -444,9 +444,9 @@ def train(args):
                         current_reward = env.Reward_function(prev_obj, current_obj)
                        
                         # Add the new experience to the replay buffer
-                        state = [boxHM, input1_placement_rp_angles, input2_placement_HM_rp]
+                        state = [boxHM.clone(), input1_placement_rp_angles.clone(), input2_placement_HM_rp.clone()]
                         action = [attention_weights, indices_rpy, pixel_x, pixel_y]
-                        new_state = [input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE]
+                        new_state = [input1_selection_HM_6views_FUTURE.clone(), boxHM_FUTURE.clone(), input2_selection_ids_FUTURE.clone(), input1_placement_rp_angles_FUTURE.clone(), input2_placement_HM_rp_FUTURE.clone()]
                         replay_buffer.add_experience(state, action, current_reward, new_state)
 
 
@@ -463,13 +463,14 @@ def train(args):
                             att_weights, rpy, x, y = action
                             
                             box_HM, placement_rp_angles, placement_HM_rp = state
-                            Qvalues, _, _ = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
+                            
+                            Qvalues, _, _ = trainer.selection_placement_net.placement_net.forward(placement_rp_angles.detach().clone(), placement_HM_rp.detach().clone(), box_HM.detach().clone(), att_weights.detach().clone())
                             Qvalue = Qvalues[rpy, x, y]
                             
 
                             selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
                             if torch.any(selection_ids_FUTURE):
-                                Qvalues_FUTURE, _, _, _  = target_net.forward_network(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+                                Qvalues_FUTURE, _, _, _  = target_net.forward_network(selection_HM_6views_FUTURE.detach().clone(), box_HM_FUTURE.detach().clone(), selection_ids_FUTURE.detach().clone(), placement_rp_angles_FUTURE.detach().clone(), placement_HM_rp_FUTURE.detach().clone()) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
                                 Qmax_FUTURE = target_net.ebstract_max(Qvalues_FUTURE)    
                             else:
                                 Qmax_FUTURE = 0
@@ -504,21 +505,21 @@ def train(args):
                             ##Q_targets_tensor = torch.stack(Q_targets_list).float().cuda()
                             ##Q_values_tensor = Q_values_list
                             ##Q_targets_tensor = torch.tensor(Q_targets_list).float().cuda()
-                            # Q_targets_tensor = torch.stack(Q_targets_list).cuda()
-                            # Q_values_tensor = torch.stack(Q_values_list).cuda()
+                            Q_targets_tensor = torch.stack(Q_targets_list).cuda()
+                            Q_values_tensor = torch.stack(Q_values_list).cuda()
                             # Concatena tutti i Q-values e Q-targets
-                            Q_values_tensor = torch.cat(Q_values_list).cuda()
-                            Q_targets_tensor = torch.cat(Q_targets_list).cuda()
+                            #Q_values_tensor = torch.cat(Q_values_list).cuda()
+                            #Q_targets_tensor = torch.cat(Q_targets_list).cuda()
                         else:
                             ##Q_values_tensor = torch.stack(Q_values_list).requires_grad_()
                             ##Q_targets_tensor = torch.stack(Q_targets_list).float()
                             ##Q_values_tensor = Q_values_list
                             ##Q_targets_tensor = Q_targets_list
                             ##Q_targets_tensor = torch.tensor(Q_targets_list).float()
-                            # Q_targets_tensor = torch.stack(Q_targets_list)
-                            # Q_values_tensor = torch.stack(Q_values_list)
-                            Q_values_tensor = torch.cat(Q_values_list)
-                            Q_targets_tensor = torch.cat(Q_targets_list)
+                            Q_targets_tensor = torch.stack(Q_targets_list)
+                            Q_values_tensor = torch.stack(Q_values_list)
+                            #Q_values_tensor = torch.cat(Q_values_list)
+                            #Q_targets_tensor = torch.cat(Q_targets_list)
 
                         print(Q_values_tensor)
                         print(Q_targets_tensor)
@@ -1077,7 +1078,7 @@ if __name__ == '__main__':
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--snapshot', dest='snapshot', action='store', default=f'snapshots/models/trainer/network_episode_2003_epoch_981.pth') # path to the  network snapshot
     parser.add_argument('--snapshot_targetNet', dest='snapshot_targetNet', action='store', default=f'snapshots/models/targetNet/network_episode_0_epoch_0.pth') # path to the target network snapshot
-    parser.add_argument('--new_episodes', action='store', default=3) # number of episodes
+    parser.add_argument('--new_episodes', action='store', default=5) # number of episodes
     parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot 
     # parser.add_argument('--batch_size', dest='batch_size', action='store', default=70) # Batch size for training
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
