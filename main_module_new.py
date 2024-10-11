@@ -402,7 +402,8 @@ def train(args):
             # print(f"{blue_light}\nChecking placement validity for the best 10 poses {reset}\n")
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, _ = trainer.check_placement_validity(env, Q_values, orients, heightmap_box, selected_obj)
             sample_counter += 1 
-            
+            print(f'{red}\nRecorded ', sample_counter, f' samples for 1 batch of training{reset}')
+                
             # Compute the objective function
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function_new(packed, env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
