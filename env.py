@@ -880,6 +880,28 @@ class Env(object):
         print('Objective function is: ', obj)
         return obj
     
+    def Objective_function_new(self, is_packed, item_in_box, item_volumes, box_hm, stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25):
+        '''
+        item_in_box: list of integers representing the ids of the items in the box
+        item_volumes: list of floats representing the volumes of the items
+        box_hm: numpy array of shape (resolution, resolution) representing the box heightmap
+        stability_of_packing: float representing the stability of the packing
+        alpha: float representing the weight of the compactness term in the objective function
+        beta: float representing the weight of the pyramidality term in the objective function
+        gamma: float representing the weight of the stability term in the objective function
+        output: float representing the objective function value
+        
+        Function to compute the objective function value based on the compactness, pyramidality, and stability of the packing
+        '''
+        if is_packed == True:
+            obj  = alpha * self.Compactness(item_in_box, item_volumes, box_hm) + beta * self.Pyramidality(item_in_box, item_volumes, box_hm) + gamma * stability_of_packing
+        else:
+            obj = -0.05
+        print(f'---------------------------------------') 
+        print(f"{blue_light}\n5. Computing the objective function {reset}")
+        print('Objective function is: ', obj)
+        return obj
+
     def Reward_function(self, obj_1, obj_2):
         '''
         obj_1: float representing the objective function value before the action
@@ -890,6 +912,19 @@ class Env(object):
         '''
         reward  = obj_2 - obj_1
         return reward
+    
+    def Reward_function_new(self, obj_1, obj_2):
+        '''
+        obj_1: float representing the objective function value before the action
+        obj_2: float representing the objective function value after the action
+        output: float representing the reward
+        
+        Function to compute the reward based on the difference between the objective function values before and after the action
+        '''
+        reward = obj_2 - obj_1
+        if obj_2 < 0:  # Penalizza quando l'obiettivo è negativo (oggetto attuale non inserito)
+            reward -= 0.1  # Potresti regolare questo valore
+        return reward 
     
     def get_z(self, Hc, Hb, pixel_x, pixel_y, obj_length, obj_width):
         '''
