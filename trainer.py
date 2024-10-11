@@ -125,11 +125,13 @@ class Trainer(object):
 
     # Compute labels and backpropagate
     def backprop(self, Q_targets_tensor, Q_values_tensor, replay_buffer_length, replay_batch_size, counter, counter_threshold):              
-
+        self.optimizer.zero_grad()
+        
         loss = self.criterion(Q_values_tensor, Q_targets_tensor)
+        torch.autograd.set_detect_anomaly(True)
         # self.optimizer.zero_grad()    
         loss.backward() # loss.backward() computes the gradient of the loss with respect to all tensors with requires_grad=True. 
-
+        """
         # Detach tensors (crucial for experience replay)
         # Q_values_tensor = Q_values_tensor.detach()
         # Q_targets_tensor = Q_targets_tensor.detach()
@@ -138,7 +140,7 @@ class Trainer(object):
         del(Q_values_tensor)
         del(Q_targets_tensor)
         gc.collect()
-
+        """
         print(f"{blue_light}\nComputing loss and gradients on network{reset}")
         print('Training loss: %f' % (loss))
         print('---------------------------------------') 

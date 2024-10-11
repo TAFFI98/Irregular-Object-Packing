@@ -435,18 +435,18 @@ def train(args):
 
                         # If the remaining objects are less than k_sort, fill the input tensors with zeros
                         if len(bbox_order_FUTURE) < k_sort:
-                          for j in range(k_sort-len(bbox_order_FUTURE)):
-                            views_FUTURE = np.concatenate((views_FUTURE, np.zeros((1,views_FUTURE.shape[1],resolution,resolution))), axis=0)
-                            heightmaps_rp_FUTURE = np.concatenate((heightmaps_rp_FUTURE, np.zeros((1,heightmaps_rp_FUTURE.shape[1],resolution,resolution,heightmaps_rp_FUTURE.shape[-1]))), axis=0)
+                            for j in range(k_sort-len(bbox_order_FUTURE)):
+                                views_FUTURE = np.concatenate((views_FUTURE, np.zeros((1,views_FUTURE.shape[1],resolution,resolution))), axis=0)
+                                heightmaps_rp_FUTURE = np.concatenate((heightmaps_rp_FUTURE, np.zeros((1,heightmaps_rp_FUTURE.shape[1],resolution,resolution,heightmaps_rp_FUTURE.shape[-1]))), axis=0)
                         input2_placement_HM_rp_FUTURE = torch.tensor(np.expand_dims(heightmaps_rp_FUTURE[0:k_sort], axis=0),requires_grad=True)      # (batch, k_sort, n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles                        
 
                         # Compute the current reward
                         current_reward = env.Reward_function(prev_obj, current_obj)
                        
                         # Add the new experience to the replay buffer
-                        state = [boxHM.clone(), input1_placement_rp_angles.clone(), input2_placement_HM_rp.clone()]
-                        action = [attention_weights, indices_rpy, pixel_x, pixel_y]
-                        new_state = [input1_selection_HM_6views_FUTURE.clone(), boxHM_FUTURE.clone(), input2_selection_ids_FUTURE.clone(), input1_placement_rp_angles_FUTURE.clone(), input2_placement_HM_rp_FUTURE.clone()]
+                        state = [boxHM.detach(), input1_placement_rp_angles.detach(), input2_placement_HM_rp.detach()]
+                        action = [attention_weights.detach(), indices_rpy, pixel_x, pixel_y]
+                        new_state = [input1_selection_HM_6views_FUTURE.detach(), boxHM_FUTURE.detach(), input2_selection_ids_FUTURE.detach(), input1_placement_rp_angles_FUTURE.detach(), input2_placement_HM_rp_FUTURE.detach()]
                         replay_buffer.add_experience(state, action, current_reward, new_state)
 
 
@@ -464,13 +464,13 @@ def train(args):
                             
                             box_HM, placement_rp_angles, placement_HM_rp = state
                             
-                            Qvalues, _, _ = trainer.selection_placement_net.placement_net.forward(placement_rp_angles.detach().clone(), placement_HM_rp.detach().clone(), box_HM.detach().clone(), att_weights.detach().clone())
+                            Qvalues, _, _ = trainer.selection_placement_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights)
                             Qvalue = Qvalues[rpy, x, y]
                             
 
                             selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
                             if torch.any(selection_ids_FUTURE):
-                                Qvalues_FUTURE, _, _, _  = target_net.forward_network(selection_HM_6views_FUTURE.detach().clone(), box_HM_FUTURE.detach().clone(), selection_ids_FUTURE.detach().clone(), placement_rp_angles_FUTURE.detach().clone(), placement_HM_rp_FUTURE.detach().clone()) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
+                                Qvalues_FUTURE, _, _, _  = target_net.forward_network(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE) # ( n_rp, res, res, 2) -- object heightmaps at different roll-pitch angles
                                 Qmax_FUTURE = target_net.ebstract_max(Qvalues_FUTURE)    
                             else:
                                 Qmax_FUTURE = 0
@@ -1105,3 +1105,5 @@ if __name__ == '__main__':
      # --------------- Start Test ---------------   
     #test(args)
 
+
+# NOTA: manager aggiornata ogni 3 epoche (non piu 4, per velocizzzare le verifiche)
