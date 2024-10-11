@@ -372,7 +372,8 @@ def train(args):
             indices_rpy, pixel_x, pixel_y, NewBoxHeightMap, stability_of_packing, packed, attempt = policy_pla_net.check_placement_validity_TENTATIVES(env, Q_values_pla, orients, heightmap_box, selected_obj, max_attempts)
             
             sample_counter += 1
-
+            print(f'{red}\nRecorded ', sample_counter, f' samples for 1 batch of training{reset}')
+                
             # Compute the objective function
             v_items_packed, _ = env.order_by_item_volume(env.packed)
             current_obj = env.Objective_function(packed, env.packed, v_items_packed, env.box_heightmap() , stability_of_packing, alpha = 0.75, beta = 0.25, gamma = 0.25)
