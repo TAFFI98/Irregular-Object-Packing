@@ -415,10 +415,10 @@ def train(args):
                 reward_pla = env.calculate_reward(packed, attempt, max_attempts)
                 
                 # Add the new experience to the replay buffer
-                state = [boxHM.clone(), input1_placement_rp_angles.clone(), input2_placement_HM_rp.clone()]
-                action = [attention_weights, indices_rpy, pixel_x, pixel_y]
+                state = [boxHM.detach(), input1_placement_rp_angles.detach(), input2_placement_HM_rp.detach()]
+                action = [attention_weights.detach(), indices_rpy, pixel_x, pixel_y]
                 current_reward = reward_pla
-                new_state = [input1_selection_HM_6views_FUTURE.clone(), boxHM_FUTURE.clone(), input2_selection_ids_FUTURE.clone(), input1_placement_rp_angles_FUTURE.clone(), input2_placement_HM_rp_FUTURE.clone()]
+                new_state = [input1_selection_HM_6views_FUTURE.detach(), boxHM_FUTURE.detach(), input2_selection_ids_FUTURE.detach(), input1_placement_rp_angles_FUTURE.detach(), input2_placement_HM_rp_FUTURE.detach()]
                 replay_buffer.add_experience(state, action, current_reward, new_state)
                 
                 # Extract a (random) bacth of experiences from the buffer 
@@ -484,10 +484,10 @@ def train(args):
                     if epoch_pla % args.target_pla_freq == 0:
                         target_pla_net.placement_net.load_state_dict(policy_pla_net.placement_net.state_dict())
                         snapshot_target_pla = target_pla_net.save_snapshot('worker', 'snapshots/placement_net/models/target', max_snapshots=5) 
-                        print(f"{red}{bold}\nAggiorno Target Placement Network {reset}\n")
+                        print(f"{red}{bold}Aggiorno Target Placement Network {reset}")
 
                     # save snapshots and remove old ones if more than max_snapshots
-                    if epoch_pla % 1 == 0: 
+                    if epoch_pla % 10 == 0: 
                         snapshot = policy_pla_net.save_snapshot('worker','snapshots/placement_net/models/trainer', max_snapshots=5) 
 
                 
@@ -512,7 +512,7 @@ def train(args):
                     Qtar_tensor_sel = Qtar_tensor_sel.expand_as(Qvalue_sel)
 
                 
-                if policy_pla_net.epoch % epoch_threshold_sel == 0:    
+                if sample_counter == 0 and policy_pla_net.epoch % epoch_threshold_sel == 0:    
                     # calcolo della loss ed esegui bacpropagation
                     loss_value_sel = policy_sel_net.backprop_sel(Qtar_tensor_sel, Qvalue_sel, policy_pla_net.epoch, epoch_threshold_sel)
                     
@@ -526,10 +526,10 @@ def train(args):
                     if epoch_sel % args.target_sel_freq == 0:
                         target_sel_net.selection_net.load_state_dict(policy_sel_net.selection_net.state_dict())
                         snapshot_target_sel = target_sel_net.save_snapshot('manager','snapshots/selection_net/models/target', max_snapshots=5) 
-                        print(f"{red}{bold}\nAggiorno Target selection Network {reset}\n")
+                        print(f"{red}{bold}Aggiorno Target selection Network {reset}")
 
                     # save snapshots and remove old ones if more than max_snapshots
-                    if epoch_sel % 1 == 0: 
+                    if epoch_sel % 10 == 0: 
                         snapshot = policy_sel_net.save_snapshot('manager', 'snapshots/selection_net/models/trainer', max_snapshots=5) 
 
 
@@ -544,7 +544,9 @@ def train(args):
         gc.collect()
 
         # AGGIORNO VALORE DI EPSILON ALLA FINE DI OGNI EPISODIO --> trainer.update_epsilon()
-        policy_sel_net.update_epsilon_exponential()
+        if episode+1 % 3 == 0:
+          policy_sel_net.update_epsilon_exponential()
+
         policy_pla_net.update_epsilon_exponential()
 
     snapshot_sel = policy_sel_net.save_snapshot('manager', 'selection_net/trainer', max_snapshots=5) 
@@ -568,39 +570,39 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=3) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=3) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=3) # number of objects to consider for sorting
+    parser.add_argument('--k_max', action='store', default=11) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=11) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=10) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--snapshot_sel', dest='snapshot_sel', action='store', default=f'snapshots/selectionNet/models/policyNet/network_episode_3292_epoch_494.pth') # path to the  network snapshot
     parser.add_argument('--snapshot_targetNet_sel', dest='snapshot_targetNet_sel', action='store', default=f'snapshots/selectionNet/models/targetNet/network_episode_0_epoch_492.pth') # path to the target network snapshot
     parser.add_argument('--snapshot_pla', dest='snapshot_pla', action='store', default=f'snapshots/placementNet/models/policyNet/network_episode_3292_epoch_494.pth') # path to the  network snapshot
     parser.add_argument('--snapshot_targetNet_pla', dest='snapshot_targetNet_pla', action='store', default=f'snapshots/placementNet/models/targetNet/network_episode_0_epoch_492.pth') # path to the target network snapshot
-    parser.add_argument('--new_episodes', action='store', default=2) # number of episodes
+    parser.add_argument('--new_episodes', action='store', default=101) # number of episodes
     parser.add_argument('--load_snapshot', dest='load_snapshot', action='store', default=False) # Load snapshot     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_yaw', action='store', default=2) # 360/n_y = discretization of yaw angle
     parser.add_argument('--n_rp', action='store', default=2)  # 360/n_rp = discretization of roll and pitch angles
     
     # epsilon-greedy parameters: 
-    parser.add_argument('--epsilon_sel', action='store', default=0.95)           # Valore iniziale per epsilon
-    parser.add_argument('--epsilon_min_sel', action='store', default=0.05)      # Valore minimo per epsilon
-    parser.add_argument('--epsilon_decay_sel', action='store', default=0.9975)   # Fattore di decrescita per epsilon
+    parser.add_argument('--epsilon_sel', action='store', default=0.975)           # Valore iniziale per epsilon
+    parser.add_argument('--epsilon_min_sel', action='store', default=0.03)      # Valore minimo per epsilon
+    parser.add_argument('--epsilon_decay_sel', action='store', default=0.9985)   # Fattore di decrescita per epsilon
      
-    parser.add_argument('--epsilon_pla', action='store', default=0.95)           # Valore iniziale per epsilon
+    parser.add_argument('--epsilon_pla', action='store', default=0.975)           # Valore iniziale per epsilon
     parser.add_argument('--epsilon_min_pla', action='store', default=0.05)      # Valore minimo per epsilon
     parser.add_argument('--epsilon_decay_pla', action='store', default=0.9975)   # Fattore di decrescita per epsilon
 
     # frequenza di aggiornamento della target network
-    parser.add_argument('--target_sel_freq', action='store', default=1)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
-    parser.add_argument('--target_pla_freq', action='store', default=1)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+    parser.add_argument('--target_sel_freq', action='store', default=12)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+    parser.add_argument('--target_pla_freq', action='store', default=15)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     # experience replay
-    parser.add_argument('--replay_buffer_capacity', action='store', default=15)                 #size of the experience replay buffer 
-    parser.add_argument('--replay_batch_size', action='store', default=1)                        #size of the batch ebstracted from experience replay buffer
-    parser.add_argument('--sample_counter_threshold_placement_net', action='store', default=1)  #dopo quanti inseriemnti viene aggiornato il worker
+    parser.add_argument('--replay_buffer_capacity', action='store', default=200)                 #size of the experience replay buffer 
+    parser.add_argument('--replay_batch_size', action='store', default=15)                        #size of the batch ebstracted from experience replay buffer
+    parser.add_argument('--sample_counter_threshold_placement_net', action='store', default=10)  #dopo quanti inseriemnti viene aggiornato il worker
 
-    parser.add_argument('--epoch_counter_threshold_selection_net', action='store', default=1)  #dopo quantie epoche viene aggiornato il manager
+    parser.add_argument('--epoch_counter_threshold_selection_net', action='store', default=4)  #dopo quantie epoche viene aggiornato il manager
 
     args = parser.parse_args()
     
