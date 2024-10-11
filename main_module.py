@@ -413,6 +413,7 @@ def train(args):
             elif packed == True:                
                 # The first iteration does not compute the reward since there are no previous objective function
                 sample_counter += 1
+                print(f'{red}\nRecorded ', sample_counter, f' samples for 1 batch of training{reset}')
                 if kk>= 1:
                         # Compute reward and Q-target value
                         print('Previous Objective function is: ', prev_obj)
