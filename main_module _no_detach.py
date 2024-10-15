@@ -485,14 +485,13 @@ def train(args):
                     # AGGIORNO TARGET NET e salvo snapshot
                     if epoch_pla % args.target_pla_freq == 0:
                         target_pla_net.placement_net.load_state_dict(policy_pla_net.placement_net.state_dict())
-                        snapshot_target_pla = target_pla_net.save_snapshot('worker', 'snapshots/placement_net/models/target', max_snapshots=5) 
+                        snapshot_target_pla = target_pla_net.save_snapshot('worker', 'snapshots/placement_net/target', max_snapshots=5) 
                         print(f"{red}{bold}Aggiorno Target Placement Network {reset}")
 
                     # save snapshots and remove old ones if more than max_snapshots
                     if epoch_pla % 10 == 0: 
-                        snapshot = policy_pla_net.save_snapshot('worker','snapshots/placement_net/models/trainer', max_snapshots=5) 
+                        snapshot = policy_pla_net.save_snapshot('worker','snapshots/placement_net/trainer', max_snapshots=5) 
 
-                
                 # Calcolo Reward per il Manager (proviene dall'environment)
                 reward_sel = env.Reward_function(prev_obj, current_obj)
                 # CALCOLO Qtarget della PLACEMENT net
@@ -527,13 +526,12 @@ def train(args):
                     # Aggiorno TARGET selection net
                     if epoch_sel % args.target_sel_freq == 0:
                         target_sel_net.selection_net.load_state_dict(policy_sel_net.selection_net.state_dict())
-                        snapshot_target_sel = target_sel_net.save_snapshot('manager','snapshots/selection_net/models/target', max_snapshots=5) 
+                        snapshot_target_sel = target_sel_net.save_snapshot('manager','snapshots/selection_net/target', max_snapshots=5) 
                         print(f"{red}{bold}Aggiorno Target selection Network {reset}")
 
                     # save snapshots and remove old ones if more than max_snapshots
                     if epoch_sel % 10 == 0: 
-                        snapshot = policy_sel_net.save_snapshot('manager', 'snapshots/selection_net/models/trainer', max_snapshots=5) 
-
+                        snapshot = policy_sel_net.save_snapshot('manager', 'snapshots/selection_net/trainer', max_snapshots=5) 
 
             # Updating the box heightmap and the objective function
             prev_obj = current_obj
@@ -551,12 +549,12 @@ def train(args):
 
         policy_pla_net.update_epsilon_exponential()
 
-    snapshot_sel = policy_sel_net.save_snapshot('manager', 'selection_net/trainer', max_snapshots=5) 
-    snapshot_pla = policy_pla_net.save_snapshot('worker', 'placement_net/trainer', max_snapshots=5) 
+    snapshot_sel = policy_sel_net.save_snapshot('manager', 'snapshots/selection_net/trainer', max_snapshots=5) 
+    snapshot_pla = policy_pla_net.save_snapshot('worker', 'snapshots/placement_net/trainer', max_snapshots=5) 
     print(f"{red}{bold}salvo Policy Networks {reset}\n")
 
-    snapshot_target_pla = target_sel_net.save_snapshot('manager', 'selection_net/target', max_snapshots=5) 
-    snapshot_target_sel = target_pla_net.save_snapshot('worker', 'placement_net/target', max_snapshots=5) 
+    snapshot_target_pla = target_sel_net.save_snapshot('manager', 'snapshots/selection_net/target', max_snapshots=5) 
+    snapshot_target_sel = target_pla_net.save_snapshot('worker', 'snapshots/placement_net/target', max_snapshots=5) 
     print(f"{red}{bold}salvo Target Networks {reset}\n")
 
     print('End of training')
