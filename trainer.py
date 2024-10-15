@@ -97,7 +97,7 @@ class Trainer(object):
             # Load pre-trained model
             if load_snapshot:
                 map_location = torch.device('cuda') if self.use_cuda else torch.device('cpu')
-                elf.placement_net.load_state_dict(torch.load(file_snapshot, map_location=map_location))
+                self.placement_net.load_state_dict(torch.load(file_snapshot, map_location=map_location))
                 self.placement_net.load_state_dict(torch.load(file_snapshot))
                 print(f'{red}Pre-trained model snapshot loaded from: %s' % (file_snapshot),f'{reset}')
         
@@ -126,10 +126,10 @@ class Trainer(object):
         orients: array with the roll, pitch and yaw angles considered ordered
         '''
         #-- placement network
-        Q_values, selected_obj, orients, attention_weights  = self.selection_placement_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
+        Q_values, selected_obj, orients  = self.selection_placement_net.forward(input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp)
         selected_obj_pybullet = int(input2_selection_ids.clone().cpu().detach()[selected_obj]) 
         orients = orients.cpu().detach().numpy()
-        return  Q_values , selected_obj_pybullet, orients, attention_weights
+        return  Q_values , selected_obj_pybullet, orients
     
     # Compute target Q_target
     def get_Qtarget_value(self, Q_max, prev_obj, current_obj, env):

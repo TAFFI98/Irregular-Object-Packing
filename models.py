@@ -57,16 +57,10 @@ class selection_placement_net(nn.Module):
     def forward(self, input1_selection_HM_6views, boxHM, input2_selection_ids, input1_placement_rp_angles, input2_placement_HM_rp):
         # Compute score values using the selection network
         Q_values_sel = self.selection_net(input1_selection_HM_6views, boxHM, input2_selection_ids)
-        # Apply Gumbel-Softmax to the score values
-        alpha = 900
-        attention_weights = torch.softmax(alpha * Q_values_sel,dim =1)
-        while torch.max(attention_weights).item() == 1:
-                    alpha = alpha - 100
-                    attention_weights = torch.softmax(alpha * Q_values_sel, dim =1)
-
+        
         # Compute Q-values using the placement network
-        Q_values_pla, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights)
-        return Q_values_sel, Q_values_pla, selected_obj, orients, attention_weights
+        Q_values_pla, selected_obj, orients = self.placement_net(input1_placement_rp_angles, input2_placement_HM_rp, boxHM)
+        return Q_values_sel, Q_values_pla, selected_obj, orients
 """
 class selection_net(nn.Module):
     def __init__(self, use_cuda, K): 
@@ -144,14 +138,7 @@ class selection_net(nn.Module):
         # Ensure score_values for all-zero inputs remain zero
         Q_values = Q_values * (1 - zero_masks_tensor)
 
-        # Apply Gumbel-Softmax to the score values
-        alpha = 900
-        attention_weights = torch.softmax(alpha * Q_values,dim =1)
-        while torch.max(attention_weights).item() == 1:
-            alpha = alpha - 100
-            attention_weights = torch.softmax(alpha * Q_values, dim =1)
-
-        return Q_values, attention_weights
+        return Q_values
     
     
 class final_conv_select_net(nn.Module):
@@ -232,7 +219,7 @@ class placement_net(nn.Module):
         # Without an activation function, the output values of the heatmap produced by the final convolutional 
         # layer can assume any real number, ranging from negative to positive infinity.
 
-    def forward(self, roll_pitch_angles, input1, input2, attention_weights):
+    def forward_OLD(self, roll_pitch_angles, input1, input2, attention_weights):
         if self.use_cuda:
             input1 = input1.cuda()
             input2 = input2.cuda()
@@ -278,6 +265,59 @@ class placement_net(nn.Module):
         Q_values = self.unet_forward(unet_input) # torch.Size([n_rp*n_y, res, res])
         
         
+        orients = orients.cpu().detach().numpy()
+        return Q_values, orients
+    
+    def forward(self, roll_pitch_angles, input1, input2):
+        if self.use_cuda:
+            input1 = input1.cuda()
+            input2 = input2.cuda()
+
+        batch_size = input1.size(0)
+        self.n_rp = input1.size(2)
+        K = input1.size(1)
+
+        # Reshape input2 to match the batch size of input1
+        input2 = input2.permute(0, 2, 3, 1).expand(batch_size, -1, -1, -1)
+
+        # Invece di usare i pesi di attenzione, facciamo una semplice somma sugli oggetti (K dimensione)
+        selected_tensor = input1.sum(dim=1, keepdim=True)  # Somma lungo la dimensione degli oggetti
+
+
+        # Show the selected tensor
+        # fig, axs = plt.subplots(1, 3, figsize=(10, 5))
+        # axs[0].imshow(selected_tensor[0,0,0,:,:,0].detach().cpu().numpy(), cmap='viridis', origin='lower')
+        # axs[0].set_xlabel('X')
+        # axs[0].set_ylabel('Y')
+        # axs[1].imshow(input1[0,int(torch.argmax(attention_weights).cpu().numpy()),0,:,:,0].detach().cpu().numpy(), cmap='viridis', origin='lower')
+        # axs[1].set_xlabel('X')
+        # axs[1].set_ylabel('Y')
+        # axs[2].imshow(input2[0,:,:,0].detach().cpu().numpy(), cmap='viridis', origin='lower')
+        # axs[2].set_xlabel('X')
+        # axs[2].set_ylabel('Y')
+        # plt.tight_layout()
+        # plt.show()
+
+        
+        # Calcolo degli angoli di yaw
+        angles_yaw = torch.arange(0, 360, 360 / self.n_y).unsqueeze(0).to(input1.device)
+        angles_yaw_expanded = angles_yaw.unsqueeze(0).expand(1, self.n_rp, self.n_y).reshape(-1, 1)
+
+        # Espansione degli angoli di roll e pitch
+        roll_pitch_angles_expanded = roll_pitch_angles.unsqueeze(1).expand(-1, self.n_y, -1).reshape(-1, 2).to(input1.device)
+
+        # Concatenazione degli angoli
+        orients = torch.cat((roll_pitch_angles_expanded, angles_yaw_expanded), dim=-1)
+
+        # Prepara input1 per l'inferenza U-Net
+        input1_rp = selected_tensor.squeeze(1).unsqueeze(2).expand(-1, -1, self.n_y, -1, -1, -1)
+
+        # Ruota il tensore e aggiungi la bounding box
+        unet_input = self.rotate_tensor_and_append_bbox(input1_rp, orients, input2)
+
+        # Calcola i Q-values tramite U-Net
+        Q_values = self.unet_forward(unet_input)
+
         orients = orients.cpu().detach().numpy()
         return Q_values, orients
 
