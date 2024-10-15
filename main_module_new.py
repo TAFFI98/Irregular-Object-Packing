@@ -18,6 +18,13 @@ The script is divided into two main functions: train and test.
 The train function is used to train the worker network and the manager network.
 The test function is used to test the trained networks.
 '''
+
+"""
+QUESTA VERSIONE CONSIDERA ANCHE "NON IMPACCHETTAMENTI" COME ESPERIENZE DA MEMORIZZARE:
+QUANDO OGGETTO NON INSERITO => obj = -0.05
+--> QUI NUOVA METODO PER OBJECTIVE FUNCTION (E REWARD)
+"""
+
 def train(args):
 
     # Initialize snapshots
