@@ -435,15 +435,15 @@ def train(args):
                     selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
 
                     # CALCOLO Qvalues della PLACEMENT net
-                    Q_values_pla, _ = policy_pla_net.placement_net.forward(placement_rp_angles.detach().clone(), placement_HM_rp.detach().clone(), box_HM.detach().clone(), att_weights.detach().clone()) 
+                    Q_values_pla, _ = policy_pla_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights) 
                     Qval_pla = Q_values_pla[rpy, x, y]
 
                     # verifica se episodio prelevato coincide con un TERMINAL STATE
                     if torch.any(selection_ids_FUTURE):
                         # forward pass attraverso la TARGET Selection Net
-                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE.detach().clone(), box_HM_FUTURE.detach().clone(), selection_ids_FUTURE.detach().clone()) 
+                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
                         # forward pass attraverso la TARGET Placeemnt Net
-                        Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE.detach().clone(), placement_HM_rp_FUTURE.detach().clone(), box_HM_FUTURE.detach().clone(), attention_weights_FUTURE.detach().clone()) 
+                        Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
                         Qmax_FUTURE = target_pla_net.ebstract_max(Qvalues_pla_FUTURE)    
                     else:
                         Qmax_FUTURE = 0
@@ -571,9 +571,9 @@ if __name__ == '__main__':
     parser.add_argument('--gui', dest='gui', action='store', default=False) # GUI for PyBullet
     parser.add_argument('--force_cpu', dest='force_cpu', action='store', default=False) # Use CPU instead of GPU
     parser.add_argument('--stage', action='store', default=1) # stage 1 or 2 for training
-    parser.add_argument('--k_max', action='store', default=11) # max number of objects to load
-    parser.add_argument('--k_min', action='store', default=11) # min number of objects to load
-    parser.add_argument('--k_sort', dest='k_sort', action='store', default=10) # number of objects to consider for sorting
+    parser.add_argument('--k_max', action='store', default=3) # max number of objects to load
+    parser.add_argument('--k_min', action='store', default=3) # min number of objects to load
+    parser.add_argument('--k_sort', dest='k_sort', action='store', default=3) # number of objects to consider for sorting
     parser.add_argument('--resolution', dest='resolution', action='store', default=50) # resolution of the heightmaps
     parser.add_argument('--box_size', dest='box_size', action='store', default=(0.4,0.4,0.3)) # size of the box
     parser.add_argument('--snapshot_sel', dest='snapshot_sel', action='store', default=f'snapshots/selectionNet/models/policyNet/network_episode_3292_epoch_494.pth') # path to the  network snapshot
@@ -595,15 +595,15 @@ if __name__ == '__main__':
     parser.add_argument('--epsilon_decay_pla', action='store', default=0.9975)   # Fattore di decrescita per epsilon
 
     # frequenza di aggiornamento della target network
-    parser.add_argument('--target_sel_freq', action='store', default=12)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
-    parser.add_argument('--target_pla_freq', action='store', default=15)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+    parser.add_argument('--target_sel_freq', action='store', default=2)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
+    parser.add_argument('--target_pla_freq', action='store', default=2)          # target network aggiornata ogni N epoche (i pesi della policy network copiati su target network)
 
     # experience replay
-    parser.add_argument('--replay_buffer_capacity', action='store', default=200)                 #size of the experience replay buffer 
-    parser.add_argument('--replay_batch_size', action='store', default=15)                        #size of the batch ebstracted from experience replay buffer
-    parser.add_argument('--sample_counter_threshold_placement_net', action='store', default=10)  #dopo quanti inseriemnti viene aggiornato il worker
+    parser.add_argument('--replay_buffer_capacity', action='store', default=5)                 #size of the experience replay buffer 
+    parser.add_argument('--replay_batch_size', action='store', default=2)                        #size of the batch ebstracted from experience replay buffer
+    parser.add_argument('--sample_counter_threshold_placement_net', action='store', default=2)  #dopo quanti inseriemnti viene aggiornato il worker
 
-    parser.add_argument('--epoch_counter_threshold_selection_net', action='store', default=4)  #dopo quantie epoche viene aggiornato il manager
+    parser.add_argument('--epoch_counter_threshold_selection_net', action='store', default=2)  #dopo quantie epoche viene aggiornato il manager
 
     args = parser.parse_args()
     

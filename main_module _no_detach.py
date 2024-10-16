@@ -310,22 +310,14 @@ def train(args):
             if np.random.rand() < policy_sel_net.epsilon:
                 # Scegli un'azione casuale
                 print(f'{red_light}Sto eseguendo EXPLORATION!{reset}') 
-                # sel_obj = random.randint(0, len(input2_selection_ids)-1)
-                # sel_obj = int(torch.randint(0, len(input2_selection_ids)-1, (1,)).item())
-                # sel_obj = torch.randint(0, len(attention_weights), (1,)).item()
                 while True:  # Loop fino a trovare un oggetto non inserito
                   sel_obj = torch.randint(0, len(Q_values_sel[0]), (1,)).item()  # Seleziona casualmente
                   if Q_values_sel[0][sel_obj].item() != 0:  # Controlla se l'oggetto è già inserito
                     break 
             else:
                 # Scegli l'azione con il massimo Q-value
-                # selected_obj = int(torch.argmax(Q_values).cpu().numpy())
-                # selected_obj = torch.argmax(attention_weights)
                 print(f'{red_light}Sto eseguendo EXPLOITATION!{reset}') 
                 sel_obj = int(torch.argmax(Q_values_sel).cpu().numpy())
-
-            # USA ATTENTION WEIGHTS INVECE DI Q-VALUES !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
 
             selected_obj = int(input2_selection_ids.clone().cpu().detach()[sel_obj]) 
             
@@ -338,10 +330,9 @@ def train(args):
             print(Q_values_sel)
 
             # Forwad Placement Net
+            copy_boxHM = boxHM.clone().detach()
             with torch.no_grad():
-                Q_values_pla, orients = policy_pla_net.placement_net.forward(input1_placement_rp_angles, input2_placement_HM_rp, boxHM, attention_weights) 
-            #print('Qvalues DELLA PLACEMENT NET:')
-            #print(Q_values_pla)
+                Q_values_pla, orients = policy_pla_net.placement_net.forward(input1_placement_rp_angles, input2_placement_HM_rp, copy_boxHM, attention_weights.detach()) 
 
             # Update tried objects and remove the selected object from the list of objects to be packed 
             tried_obj.append(selected_obj)
@@ -417,8 +408,8 @@ def train(args):
                 reward_pla = env.calculate_reward(packed, attempt, max_attempts)
                 
                 # Add the new experience to the replay buffer
-                state = [boxHM, input1_placement_rp_angles, input2_placement_HM_rp]
-                action = [attention_weights, indices_rpy, pixel_x, pixel_y]
+                state = [copy_boxHM, input1_placement_rp_angles, input2_placement_HM_rp]
+                action = [attention_weights.detach(), indices_rpy, pixel_x, pixel_y]
                 current_reward = reward_pla
                 new_state = [input1_selection_HM_6views_FUTURE, boxHM_FUTURE, input2_selection_ids_FUTURE, input1_placement_rp_angles_FUTURE, input2_placement_HM_rp_FUTURE]
                 replay_buffer.add_experience(state, action, current_reward, new_state)
@@ -436,15 +427,15 @@ def train(args):
                     selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE, placement_rp_angles_FUTURE, placement_HM_rp_FUTURE = new_state
 
                     # CALCOLO Qvalues della PLACEMENT net
-                    Q_values_pla, _ = policy_pla_net.placement_net.forward(placement_rp_angles.detach().clone(), placement_HM_rp.detach().clone(), box_HM.detach().clone(), att_weights.detach().clone()) 
+                    Q_values_pla, _ = policy_pla_net.placement_net.forward(placement_rp_angles, placement_HM_rp, box_HM, att_weights) 
                     Qval_pla = Q_values_pla[rpy, x, y]
 
                     # verifica se episodio prelevato coincide con un TERMINAL STATE
                     if torch.any(selection_ids_FUTURE):
                         # forward pass attraverso la TARGET Selection Net
-                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE.detach().clone(), box_HM_FUTURE.detach().clone(), selection_ids_FUTURE.detach().clone()) 
+                        _, attention_weights_FUTURE = target_sel_net.selection_net.forward(selection_HM_6views_FUTURE, box_HM_FUTURE, selection_ids_FUTURE) 
                         # forward pass attraverso la TARGET Placeemnt Net
-                        Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE.detach().clone(), placement_HM_rp_FUTURE.detach().clone(), box_HM_FUTURE.detach().clone(), attention_weights_FUTURE.detach().clone()) 
+                        Qvalues_pla_FUTURE, _ = target_pla_net.placement_net.forward(placement_rp_angles_FUTURE, placement_HM_rp_FUTURE, box_HM_FUTURE, attention_weights_FUTURE) 
                         Qmax_FUTURE = target_pla_net.ebstract_max(Qvalues_pla_FUTURE)    
                     else:
                         Qmax_FUTURE = 0
