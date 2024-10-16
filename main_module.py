@@ -305,7 +305,6 @@ def train(args):
             # Forward Selection Net
             Q_values_sel = policy_sel_net.selection_net.forward( input1_selection_HM_6views, boxHM, input2_selection_ids) 
 
-            #PRENDE OGGETTO DA attention_weights
             # EXPLOITATION EXPLORATION TRADE-OFF: EPSILON-GREEDY
             if np.random.rand() < policy_sel_net.epsilon:
                 # Scegli un'azione casuale
